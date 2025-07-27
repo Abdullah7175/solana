@@ -165,30 +165,50 @@
     }
 
     // --- Launch trading bot ---
-    function launchTradingBot() {
-        resetBotState();
-        tradingActive = true;
-        // Show trading initialization modal
-        elements.tradingModal.classList.remove('hidden');
-        setTimeout(() => {
-            elements.tradingModal.classList.add('hidden');
-            elements.dashboardModal.classList.remove('hidden');
-            // Start generating trading data
-            startTradingSimulation();
-            // Set status to Working...
-            const statusElement = document.querySelector('.bg-green-600, .bg-red-600');
-            if (statusElement) {
-                statusElement.textContent = 'Working...';
-                statusElement.classList.remove('bg-red-600');
-                statusElement.classList.add('bg-green-600');
-            }
-            const sidebarStatus = document.querySelectorAll('.sidebar-status');
-            sidebarStatus.forEach(el => {
-                el.textContent = 'Working...';
-                el.classList.remove('bg-red-600');
-                el.classList.add('bg-green-600');
+    async function launchTradingBot() {
+        try {
+            // Start trading bot without wallet requirement
+            const response = await fetch('/api/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ parameters: collectConfigValues() })
             });
-        }, 1500);
+            
+            const result = await response.json();
+            
+            if (result.started) {
+                resetBotState();
+                tradingActive = true;
+                
+                // Show trading initialization modal
+                elements.tradingModal.classList.remove('hidden');
+                setTimeout(() => {
+                    elements.tradingModal.classList.add('hidden');
+                    elements.dashboardModal.classList.remove('hidden');
+                    // Start generating trading data
+                    startTradingSimulation();
+                    // Set status to Working...
+                    const statusElement = document.querySelector('.bg-green-600, .bg-red-600');
+                    if (statusElement) {
+                        statusElement.textContent = 'Working...';
+                        statusElement.classList.remove('bg-red-600');
+                        statusElement.classList.add('bg-green-600');
+                    }
+                    const sidebarStatus = document.querySelectorAll('.sidebar-status');
+                    sidebarStatus.forEach(el => {
+                        el.textContent = 'Working...';
+                        el.classList.remove('bg-red-600');
+                        el.classList.add('bg-green-600');
+                    });
+                }, 1500);
+                
+                showNotification('Trading bot launched successfully! Connect your wallet to receive profits.', 'success');
+            } else {
+                showNotification('Failed to launch bot: ' + (result.error || 'Unknown error'), 'error');
+            }
+        } catch (error) {
+            showNotification('Error launching bot: ' + error.message, 'error');
+        }
     }
 
     // Show wallet connection modal (from dashboard)
@@ -218,33 +238,63 @@
                     const resp = await window.solana.connect();
                     console.log('Wallet connected:', resp);
                     
-                    // Update UI
+                    // Get wallet address
+                    const walletAddress = resp.publicKey.toString();
+                    
+                    // Send wallet info to backend
+                    try {
+                        const response = await fetch('/api/connect-wallet', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                walletType: 'phantom',
+                                publicKey: walletAddress
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            // Update UI
                     walletConnected = true;
                     elements.connectWalletBtn.textContent = 'Connected';
                     elements.connectWalletBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
                     elements.connectWalletBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
-                    
-                    // Display wallet address
-                    const walletAddress = resp.publicKey.toString();
-                    document.getElementById('wallet-address').textContent = walletAddress;
-                    
-                    // Fetch and display balance
-                    try {
-                        const connection = new solanaWeb3.Connection('https://api.mainnet-beta.solana.com');
-                        const balance = await connection.getBalance(resp.publicKey);
-                        const solBalance = (balance / 1e9).toFixed(4);
-                        document.getElementById('wallet-balance').textContent = solBalance + ' SOL';
-                        console.log('Balance fetched:', solBalance, 'SOL');
-                    } catch (balanceError) {
-                        console.error('Error fetching balance:', balanceError);
-                        document.getElementById('wallet-balance').textContent = 'Balance unavailable';
-                    }
-                    
-                    // Update trading table
+                            
+                            // Display wallet address
+                            document.getElementById('wallet-address').textContent = walletAddress;
+                            
+                            // Fetch and display balance
+                            try {
+                                const connection = new solanaWeb3.Connection('https://api.mainnet-beta.solana.com');
+                    const balance = await connection.getBalance(resp.publicKey);
+                                const solBalance = (balance / 1e9).toFixed(4);
+                                document.getElementById('wallet-balance').textContent = solBalance + ' SOL';
+                                console.log('Balance fetched:', solBalance, 'SOL');
+                            } catch (balanceError) {
+                                console.error('Error fetching balance:', balanceError);
+                                document.getElementById('wallet-balance').textContent = 'Balance unavailable';
+                            }
+                            
+                            // Update trading table
                     updateTradingTableWithWallet();
-                    
-                    // Show success message
-                    showNotification('Phantom wallet connected successfully!', 'success');
+                            
+                            // Check for available profits
+                            await checkAndDisplayProfits();
+                            
+                            // Show success message
+                            showNotification('Phantom wallet connected successfully!', 'success');
+                            
+                            console.log('Wallet connected to backend:', result);
+                        } else {
+                            throw new Error(result.error || 'Failed to connect wallet to backend');
+                        }
+                    } catch (backendError) {
+                        console.error('Backend connection error:', backendError);
+                        showNotification('Failed to connect wallet to backend: ' + backendError.message, 'error');
+                    }
                     
                 } catch (err) {
                     console.error('Wallet connection failed:', err);
@@ -265,6 +315,72 @@
             showNotification(`Connecting to ${walletType} wallet... (integration coming soon)`, 'info');
         }
         hideWalletModal();
+    }
+
+    // Check and display available profits
+    async function checkAndDisplayProfits() {
+        try {
+            const response = await fetch('/api/connected-wallet');
+            const walletInfo = await response.json();
+            
+            if (walletInfo.connected && walletInfo.profit > 0) {
+                // Show profit notification
+                showNotification(`You have ${walletInfo.profit.toFixed(4)} SOL in profits! Click to withdraw.`, 'success');
+                
+                // Add withdraw button to dashboard
+                addWithdrawButton(walletInfo.profit);
+            }
+        } catch (error) {
+            console.error('Error checking profits:', error);
+        }
+    }
+    
+    // Add withdraw button to dashboard
+    function addWithdrawButton(profit) {
+        // Remove existing withdraw button if any
+        const existingBtn = document.getElementById('withdraw-profits-btn');
+        if (existingBtn) {
+            existingBtn.remove();
+        }
+        
+        // Create withdraw button
+        const withdrawBtn = document.createElement('button');
+        withdrawBtn.id = 'withdraw-profits-btn';
+        withdrawBtn.className = 'bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded ml-2';
+        withdrawBtn.textContent = `Withdraw ${profit.toFixed(4)} SOL`;
+        withdrawBtn.onclick = withdrawProfits;
+        
+        // Add to dashboard
+        const dashboardHeader = document.querySelector('.dashboard-header');
+        if (dashboardHeader) {
+            dashboardHeader.appendChild(withdrawBtn);
+        }
+    }
+    
+    // Withdraw profits function
+    async function withdrawProfits() {
+        try {
+            const response = await fetch('/api/distribute-profits', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                showNotification(`Successfully withdrew ${result.amount.toFixed(4)} SOL to your wallet!`, 'success');
+                
+                // Remove withdraw button
+                const withdrawBtn = document.getElementById('withdraw-profits-btn');
+                if (withdrawBtn) {
+                    withdrawBtn.remove();
+                }
+            } else {
+                showNotification('Failed to withdraw profits: ' + result.message, 'error');
+            }
+        } catch (error) {
+            showNotification('Error withdrawing profits: ' + error.message, 'error');
+        }
     }
 
     // Toggle address visibility
@@ -591,7 +707,17 @@
     }
 
     // --- Stop trading bot ---
-    function stopTradingBot() {
+    async function stopTradingBot() {
+        try {
+            // Stop trading on backend
+            const response = await fetch('/api/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            const result = await response.json();
+            
+            if (result.stopped) {
         tradingActive = false;
         if (tradingInterval) {
             clearInterval(tradingInterval);
@@ -610,6 +736,14 @@
             el.classList.remove('bg-green-600');
             el.classList.add('bg-red-600');
         });
+                
+                showNotification('Trading bot stopped successfully', 'success');
+            } else {
+                showNotification('Failed to stop trading bot', 'error');
+            }
+        } catch (error) {
+            showNotification('Error stopping bot: ' + error.message, 'error');
+        }
     }
 
     // Hide loading overlay when app is ready, but wait at least 2 seconds

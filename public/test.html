@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Server Test - SOUL SPARK</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0f172a;
+            color: white;
+        }
+        .test-section {
+            background: rgba(30, 41, 59, 0.8);
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        .info { color: #3b82f6; }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        pre {
+            background: #1e293b;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>SOUL SPARK - Server Test Page</h1>
+    
+    <div class="test-section">
+        <h2>1. Basic Server Test</h2>
+        <button onclick="testServer()">Test Server Connection</button>
+        <div id="server-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. Bot Status Test</h2>
+        <button onclick="testBotStatus()">Get Bot Status</button>
+        <div id="status-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. Launch Bot Test (No Wallet Required)</h2>
+        <button onclick="testLaunchBot()">Launch Bot</button>
+        <div id="launch-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>4. Stop Bot Test</h2>
+        <button onclick="testStopBot()">Stop Bot</button>
+        <div id="stop-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>5. Wallet Connection Test</h2>
+        <button onclick="testWalletConnection()">Test Wallet Endpoint</button>
+        <div id="wallet-result"></div>
+    </div>
+
+    <script>
+        async function testServer() {
+            const resultDiv = document.getElementById('server-result');
+            resultDiv.innerHTML = '<span class="info">Testing...</span>';
+            
+            try {
+                const response = await fetch('/api/test');
+                const data = await response.json();
+                resultDiv.innerHTML = `<span class="success">✅ Server is working!</span><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Server error: ${error.message}</span>`;
+            }
+        }
+        
+        async function testBotStatus() {
+            const resultDiv = document.getElementById('status-result');
+            resultDiv.innerHTML = '<span class="info">Testing...</span>';
+            
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                resultDiv.innerHTML = `<span class="success">✅ Bot status retrieved!</span><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Status error: ${error.message}</span>`;
+            }
+        }
+        
+        async function testLaunchBot() {
+            const resultDiv = document.getElementById('launch-result');
+            resultDiv.innerHTML = '<span class="info">Launching bot...</span>';
+            
+            try {
+                const response = await fetch('/api/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                resultDiv.innerHTML = `<span class="success">✅ Bot launched!</span><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Launch error: ${error.message}</span>`;
+            }
+        }
+        
+        async function testStopBot() {
+            const resultDiv = document.getElementById('stop-result');
+            resultDiv.innerHTML = '<span class="info">Stopping bot...</span>';
+            
+            try {
+                const response = await fetch('/api/stop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                resultDiv.innerHTML = `<span class="success">✅ Bot stopped!</span><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Stop error: ${error.message}</span>`;
+            }
+        }
+        
+        async function testWalletConnection() {
+            const resultDiv = document.getElementById('wallet-result');
+            resultDiv.innerHTML = '<span class="info">Testing wallet endpoint...</span>';
+            
+            try {
+                const response = await fetch('/api/connected-wallet');
+                const data = await response.json();
+                resultDiv.innerHTML = `<span class="success">✅ Wallet endpoint working!</span><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Wallet error: ${error.message}</span>`;
+            }
+        }
+        
+        // Auto-test on page load
+        window.onload = function() {
+            setTimeout(testServer, 1000);
+        };
+    </script>
+</body>
+</html> 
