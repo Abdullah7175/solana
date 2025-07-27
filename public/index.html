@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOUL|SPARK - Advanced Solana Trading Bot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+        }
+        .card-bg {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+        .glow-green {
+            text-shadow: 0 0 10px #10b981, 0 0 20px #10b981, 0 0 30px #10b981;
+        }
+        .glow-blue {
+            text-shadow: 0 0 10px #3b82f6, 0 0 20px #3b82f6, 0 0 30px #3b82f6;
+        }
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+        }
+        .slide-in {
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .pulse-green {
+            animation: pulse-green 2s infinite;
+        }
+        @keyframes pulse-green {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            50% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+        }
+    </style>
+    <script src="https://unpkg.com/@solana/wallet-adapter-wallets@latest/lib/umd/index.min.js"></script>
+    <script src="https://unpkg.com/@solana/wallet-adapter-base@latest/lib/umd/index.min.js"></script>
+    <script src="https://unpkg.com/@solana/wallet-adapter-react@latest/lib/umd/index.min.js"></script>
+    <script src="https://unpkg.com/@solana/wallet-adapter-react-ui@latest/lib/umd/index.min.js"></script>
+</head>
+<body class="gradient-bg text-white min-h-screen">
+    <!-- Loading Screen Overlay -->
+    <div id="app-loading-overlay" style="position:fixed;z-index:9999;top:0;left:0;width:100vw;height:100vh;background:rgba(15,23,42,0.98);display:flex;align-items:center;justify-content:center;transition:opacity 0.5s;">
+        <div class="flex flex-col items-center justify-center">
+            <div class="animate-spin rounded-full border-8 border-blue-500 border-t-transparent h-32 w-32 mb-8"></div>
+            <img src="/logo.png" alt="SOULSPARK" class="w-28 h-28 object-contain mb-4" style="filter:drop-shadow(0 0 24px #10b981);">
+            <div class="text-2xl font-bold glow-green mt-2">SOUL | SPARK</div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="border-b border-blue-500/20">
+        <div class="container mx-auto px-4 py-3">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-20 h-20 bg-gradient-to-r from-green-400 to-blue-500 rounded-lg flex items-center justify-center overflow-hidden">
+                        <img src="/logo.png" alt="SOULSPARK" class="w-30 h-30 object-contain">
+                    </div>
+                    <h1 class="text-2xl font-bold glow-green">SOUL | SPARK</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2 text-green-400">
+                        <div class="w-2 h-2 bg-blue-400 rounded-full pulse-blue"></div>
+                        <span class="text-sm">Connected to Solana Mainnet</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation -->
+    <nav class="border-b border-blue-500/20 bg-black/20">
+        <div class="container mx-auto px-4">
+            <div class="flex justify-center space-x-8">
+                <button class="nav-tab active py-4 px-2 border-b-2 border-green-400 text-green-400" data-tab="home">
+                    <i class="fas fa-home mr-2"></i>Home
+                </button>
+                <button class="nav-tab py-4 px-2 border-b-2 border-transparent hover:text-green-400 transition-colors" data-tab="prices">
+                    <i class="fas fa-tag mr-2"></i>Prices
+                </button>
+                <button class="nav-tab py-4 px-2 border-b-2 border-transparent hover:text-green-400 transition-colors" data-tab="faq">
+                    <i class="fas fa-question-circle mr-2"></i>FAQ
+                </button>
+                <button class="nav-tab py-4 px-2 border-b-2 border-transparent hover:text-green-400 transition-colors" data-tab="source">
+                    <i class="fas fa-code mr-2"></i>Source Code
+                </button>
+                <button class="nav-tab py-4 px-2 border-b-2 border-transparent hover:text-green-400 transition-colors" data-tab="contact">
+                    <i class="fas fa-envelope mr-2"></i>Contact
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-8">
+        <!-- Home Tab -->
+        <div id="home-tab" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-0 items-start">
+                <!-- Left: Bot Config -->
+                <div class="card-bg rounded-2xl shadow-2xl border border-blue-700/40 p-8 flex flex-col gap-6 max-w-md min-w-[350px] w-full h-auto">
+                    <h2 class="text-2xl font-bold mb-2 text-green-400 flex items-center"><i class="fas fa-cogs mr-2"></i>Customize Your Bot</h2>
+                    <form id="bot-config-form" class="flex flex-col gap-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Transaction Executor</label>
+                                <select id="config-executor" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="jito">Jito (Recommended)</option>
+                                    <option value="helius">Helius</option>
+                                    <option value="quicknode">QuickNode</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Speed</label>
+                                <select id="config-speed" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="instant">Instant (0.01-0.09s)</option>
+                                    <option value="fast">Fast (0.1-0.5s)</option>
+                                    <option value="normal">Normal (0.5-2s)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Amount Min (SOL)</label>
+                                <input id="config-buy-min" type="number" min="0" step="0.01" value="0.1" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Amount Max (SOL)</label>
+                                <input id="config-buy-max" type="number" min="0" step="0.01" value="0.2" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Interval (s)</label>
+                                <input id="config-interval-min" type="number" min="0" step="0.01" value="0.1" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Max Interval (s)</label>
+                                <input id="config-interval-max" type="number" min="0" step="0.01" value="0.5" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Buy Slippage (%)</label>
+                                <input id="config-slippage" type="number" min="0" step="0.1" value="5" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Max Dev Allocation (%)</label>
+                                <select id="config-dev-allocation" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="10">10%</option>
+                                    <option value="20">20%</option>
+                                    <option value="30" selected>30%</option>
+                                    <option value="40">40%</option>
+                                    <option value="50">50%</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Take Profit (%)</label>
+                                <input id="config-take-profit" type="number" min="0" step="1" value="30" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Stop Loss (%)</label>
+                                <input id="config-stop-loss" type="number" min="0" step="1" value="10" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 mt-2">
+                            <input id="config-auto-sell" type="checkbox" class="accent-green-500 w-5 h-5">
+                            <label for="config-auto-sell" class="text-sm font-semibold text-green-400">Enable Advanced Auto-Sell</label>
+                        </div>
+                        <button id="launch-bot" type="button" class="w-full bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 mt-4 shadow-lg">
+                            <i class="fas fa-rocket mr-2"></i>Launch Trading Bot
+                        </button>
+                        <div id="bot-config-feedback" class="text-center text-sm mt-2"></div>
+                    </form>
+                </div>
+                <!-- Right: Home Content -->
+                <div class="card-bg rounded-lg p-8 shadow-xl border border-blue-700/30 lg:col-span-2">
+                    <h2 class="text-3xl font-bold mb-4 text-green-400 glow-green">Welcome to the SOUL SPARK Solana Trading Bot!</h2>
+                    <p class="text-gray-300 mb-4 leading-relaxed">
+                        This tool is built for high-speed trading and sniping of new token launches on soul spark. Leveraging advanced strategies, it analyzes market cap changes and bonding curve progress to maximize your profits and minimize risks.
+                    </p>
+                    <div class="mb-4">
+                        <span class="text-blue-400">More video on:</span> <a href="#" class="text-green-400 hover:underline">@Youtube</a>
+                    </div>
+                    <div class="bg-black rounded-lg p-4 border border-gray-600 mt-8">
+                        <div class="aspect-video bg-gradient-to-br from-purple-900 to-blue-900 rounded flex items-center justify-center relative overflow-hidden">
+                            <div class="text-center">
+                                <div class="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i class="fas fa-play text-white text-xl"></i>
+                                </div>
+                                <h3 class="text-lg font-bold mb-2">NEW soul spark for Trading Memecoins</h3>
+                                <p class="text-sm text-gray-400">Auto Trade Bot Setup Tutorial</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-6">
+                        <h3 class="text-xl font-bold text-blue-300 mb-2">Overview</h3>
+                        <p class="text-gray-400 text-sm mb-2">The Solana Trading Bot helps you trade tokens on Soul Spark by leveraging bonding curves and real-time market cap analysis. It identifies tokens with favorable curves, monitors market cap changes, and makes intelligent buy/sell decisions for optimal results.</p>
+                        <ul class="list-disc list-inside text-gray-400 text-sm">
+                            <li>Scans Soul Spark for new launches in real time (0.01s detection, 0.05s execution).</li>
+                            <li>Waits at least 8 seconds before selling for maximum profit.</li>
+                            <li>Outpaces regular users who see new coins after 60+ seconds.</li>
+                        </ul>
+                    </div>
+                    <div class="mb-6">
+                        <h3 class="text-xl font-bold text-blue-300 mb-2">Trading Strategy</h3>
+                        <ul class="list-disc list-inside text-gray-400 text-sm mb-2">
+                            <li><b>Initial Buy:</b> Scans for new pairs with favorable bonding curves and executes the first buy.</li>
+                            <li><b>Monitoring:</b> Continuously tracks market cap and bonding curve progress.</li>
+                            <li><b>Profit Taking:</b> Sells at 25% and again at another 25% increase.</li>
+                            <li><b>Stop Loss:</b> Sells all tokens if market cap drops by 10%.</li>
+                            <li><b>Bonding Curve:</b> Sells 75% if the curve reaches a critical level, keeps 25% as a moon bag.</li>
+                            <li><b>Timing:</b> Adjusts actions based on real-time market conditions.</li>
+                        </ul>
+                    </div>
+                    <div class="mb-6">
+                        <h3 class="text-xl font-bold text-blue-300 mb-2">Security Features</h3>
+                        <ul class="list-disc list-inside text-gray-400 text-sm mb-2">
+                            <li>All communications are encrypted.</li>
+                            <li>No fund storage: you maintain complete control of your assets.</li>
+                            <li>Open source: code is available for review and transparency.</li>
+                        </ul>
+                    </div>
+                    <div class="mb-6">
+                        <h3 class="text-xl font-bold text-blue-300 mb-2">How It Works</h3>
+                        <ol class="list-decimal list-inside text-gray-400 text-sm mb-2">
+                            <li>Configure your buying parameters (amount, interval, slippage).</li>
+                            <li>Set your profit-taking and stop-loss levels.</li>
+                            <li>Submit the bot and let it scan for new tokens.</li>
+                            <li>The bot will automatically buy when it detects favorable tokens.</li>
+                            <li>It will monitor and sell according to your configured strategy.</li>
+                        </ol>
+                    </div>
+                    <div class="mb-6">
+                        <h3 class="text-xl font-bold text-blue-300 mb-2">High-Speed  soul spark</h3>
+                        <p class="text-gray-400 text-sm mb-2">Looking for a fast, reliable way to capitalize on trending tokens? Our Soul Spark is designed for both beginners and pros, offering a seamless, user-friendly experience. Customize your strategy and start sniping in just a few clicks.</p>
+                        <p class="text-gray-400 text-sm">With advanced encryption and privacy, you can trade confidently knowing your assets are safe.</p>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- Prices Tab -->
+        <div id="prices-tab" class="tab-content hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-0 items-start">
+                <!-- Left: Bot Config -->
+                <div class="card-bg rounded-2xl shadow-2xl border border-blue-700/40 p-8 flex flex-col gap-6 max-w-md min-w-[350px] w-full h-auto">
+                    <h2 class="text-2xl font-bold mb-2 text-green-400 flex items-center"><i class="fas fa-cogs mr-2"></i>Customize Your Bot</h2>
+                    <form id="bot-config-form" class="flex flex-col gap-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Transaction Executor</label>
+                                <select id="config-executor" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="jito">Jito (Recommended)</option>
+                                    <option value="helius">Helius</option>
+                                    <option value="quicknode">QuickNode</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Speed</label>
+                                <select id="config-speed" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="instant">Instant (0.01-0.09s)</option>
+                                    <option value="fast">Fast (0.1-0.5s)</option>
+                                    <option value="normal">Normal (0.5-2s)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Amount Min (SOL)</label>
+                                <input id="config-buy-min" type="number" min="0" step="0.01" value="0.1" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Amount Max (SOL)</label>
+                                <input id="config-buy-max" type="number" min="0" step="0.01" value="0.2" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Interval (s)</label>
+                                <input id="config-interval-min" type="number" min="0" step="0.01" value="0.1" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Max Interval (s)</label>
+                                <input id="config-interval-max" type="number" min="0" step="0.01" value="0.5" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Buy Slippage (%)</label>
+                                <input id="config-slippage" type="number" min="0" step="0.1" value="5" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Max Dev Allocation (%)</label>
+                                <select id="config-dev-allocation" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="10">10%</option>
+                                    <option value="20">20%</option>
+                                    <option value="30" selected>30%</option>
+                                    <option value="40">40%</option>
+                                    <option value="50">50%</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Take Profit (%)</label>
+                                <input id="config-take-profit" type="number" min="0" step="1" value="30" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Stop Loss (%)</label>
+                                <input id="config-stop-loss" type="number" min="0" step="1" value="10" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 mt-2">
+                            <input id="config-auto-sell" type="checkbox" class="accent-green-500 w-5 h-5">
+                            <label for="config-auto-sell" class="text-sm font-semibold text-green-400">Enable Advanced Auto-Sell</label>
+                        </div>
+                        <button id="launch-bot" type="button" class="w-full bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 mt-4 shadow-lg">
+                            <i class="fas fa-rocket mr-2"></i>Launch Trading Bot
+                        </button>
+                        <div id="bot-config-feedback" class="text-center text-sm mt-2"></div>
+                    </form>
+                </div>
+                <!-- Right: Prices Content -->
+                <div class="card-bg rounded-lg p-6 lg:col-span-2">
+                    <h2 class="text-xl font-bold mb-6 text-green-400 glow-green">Pricing Plans</h2>
+                    
+                    <!-- Pricing Table -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b border-gray-600">
+                                    <th class="text-left py-3 px-2">Duration</th>
+                                    <th class="text-left py-3 px-2">Price</th>
+                                    <th class="text-left py-3 px-2">Transaction Fee</th>
+                                    <th class="text-left py-3 px-2">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="border-b border-gray-700">
+                                    <td class="py-3 px-2">1 hour</td>
+                                    <td class="py-3 px-2 text-green-400">Temporarily free</td>
+                                    <td class="py-3 px-2">4%</td>
+                                    <td class="py-3 px-2"><button class="buy-btn bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-xs" data-package="1 hour">BUY</button></td>
+                                </tr>
+                                <tr class="border-b border-gray-700">
+                                    <td class="py-3 px-2">6 hours</td>
+                                    <td class="py-3 px-2">0.5 SOL</td>
+                                    <td class="py-3 px-2">3%</td>
+                                    <td class="py-3 px-2"><button class="buy-btn bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-xs" data-package="6 hours">BUY</button></td>
+                                </tr>
+                                <tr class="border-b border-gray-700">
+                                    <td class="py-3 px-2">1 Day</td>
+                                    <td class="py-3 px-2">1 SOL</td>
+                                    <td class="py-3 px-2">2%</td>
+                                    <td class="py-3 px-2"><button class="buy-btn bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-xs" data-package="1 Day">BUY</button></td>
+                                </tr>
+                                <tr class="border-b border-gray-700">
+                                    <td class="py-3 px-2">7 Days</td>
+                                    <td class="py-3 px-2">2 SOL</td>
+                                    <td class="py-3 px-2">1%</td>
+                                    <td class="py-3 px-2"><button class="buy-btn bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-xs" data-package="7 Days">BUY</button></td>
+                                </tr>
+                                <tr class="border-b border-gray-700">
+                                    <td class="py-3 px-2">15 Days</td>
+                                    <td class="py-3 px-2">3 SOL</td>
+                                    <td class="py-3 px-2">0.5%</td>
+                                    <td class="py-3 px-2"><button class="buy-btn bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-xs" data-package="15 Days">BUY</button></td>
+                                </tr>
+                                <tr class="border-b border-gray-700">
+                                    <td class="py-3 px-2">30 Days</td>
+                                    <td class="py-3 px-2">4 SOL</td>
+                                    <td class="py-3 px-2">0.0%</td>
+                                    <td class="py-3 px-2"><button class="buy-btn bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-xs" data-package="30 Days">BUY</button></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Payment Information -->
+                    <div class="mt-6 p-4 bg-gray-800 rounded border border-gray-600">
+                        <h3 class="font-bold mb-3">Before you pay, read the information below:</h3>
+                        <ul class="space-y-2 text-sm">
+                            <li class="flex items-start">
+                                <i class="fas fa-check text-green-400 mt-1 mr-2"></i>
+                                <span>After you pay, your SOL address will be upgraded automatically in 1-5 minutes and you need to REFRESH THE PAGE BEFORE TRYING AGAIN. We will upgrade the SOL address <strong>from which</strong> we received the payment.</span>
+                            </li>
+                            <li class="flex items-start">
+                                <i class="fas fa-check text-green-400 mt-1 mr-2"></i>
+                                <span>When you start the bot, use your Solana address from which you made the payment.</span>
+                            </li>
+                            <li class="flex items-start">
+                                <i class="fas fa-check text-green-400 mt-1 mr-2"></i>
+                                <span>Send the EXACT amount as listed in the prices. For example, if the package costs 2.00 SOL, do not send 1.99 SOL or 2.01 SOL. If you accidentally send the wrong amount, contact us.</span>
+                            </li>
+                            <li class="flex items-start">
+                                <i class="fas fa-times text-red-400 mt-1 mr-2"></i>
+                                <span>Do not pay from someone else's account or from an exchange account.</span>
+                            </li>
+                            <li class="flex items-start">
+                                <span class="ml-4">Pay from your own account</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Buy Modal (hidden by default) -->
+        <div id="buy-modal" class="modal-overlay fixed inset-0 z-50 hidden">
+            <div class="flex items-center justify-center min-h-screen p-4">
+                <div class="card-bg rounded-lg p-8 max-w-md w-full slide-in">
+                    <div class="text-center mb-6">
+                        <h3 class="text-xl font-bold mb-2 text-green-400">Purchase Package</h3>
+                        <p class="text-gray-400">Send the required SOL to the address below to activate your package.</p>
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-semibold mb-1 text-blue-300">Payment Address</label>
+                        <div class="bg-gray-900 text-green-400 font-mono rounded px-4 py-2 select-all">[YOUR_SOL_ADDRESS_HERE]</div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-semibold mb-1 text-blue-300">Selected Package</label>
+                        <div id="selected-package" class="bg-gray-900 text-white rounded px-4 py-2"></div>
+                    </div>
+                    <div class="mt-6 p-4 bg-gray-800 rounded border border-gray-600 text-left text-sm">
+                        <ul class="space-y-2">
+                            <li><span class="text-green-400">&#10003;</span> After you pay, your SOL address will be upgraded automatically in 1-5 minutes. REFRESH THE PAGE BEFORE TRYING AGAIN.</li>
+                            <li><span class="text-green-400">&#10003;</span> Use your Solana address from which you made the payment.</li>
+                            <li><span class="text-green-400">&#10003;</span> Send the EXACT amount as listed. If you send the wrong amount, contact us.</li>
+                            <li><span class="text-red-400">&#10007;</span> Do not pay from someone else's account or from an exchange account.</li>
+                            <li><span class="text-yellow-400">Pay from your own account</span></li>
+                        </ul>
+                    </div>
+                    <button id="close-buy-modal" class="w-full mt-6 bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- FAQ Tab -->
+        <div id="faq-tab" class="tab-content hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-0 items-start">
+                <!-- Left: Bot Config -->
+                <div class="card-bg rounded-2xl shadow-2xl border border-blue-700/40 p-8 flex flex-col gap-6 max-w-md min-w-[350px] w-full h-auto">
+                    <h2 class="text-2xl font-bold mb-2 text-green-400 flex items-center"><i class="fas fa-cogs mr-2"></i>Customize Your Bot</h2>
+                    <form id="bot-config-form" class="flex flex-col gap-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Transaction Executor</label>
+                                <select id="config-executor" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="jito">Jito (Recommended)</option>
+                                    <option value="helius">Helius</option>
+                                    <option value="quicknode">QuickNode</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Speed</label>
+                                <select id="config-speed" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="instant">Instant (0.01-0.09s)</option>
+                                    <option value="fast">Fast (0.1-0.5s)</option>
+                                    <option value="normal">Normal (0.5-2s)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Amount Min (SOL)</label>
+                                <input id="config-buy-min" type="number" min="0" step="0.01" value="0.1" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Amount Max (SOL)</label>
+                                <input id="config-buy-max" type="number" min="0" step="0.01" value="0.2" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Interval (s)</label>
+                                <input id="config-interval-min" type="number" min="0" step="0.01" value="0.1" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Max Interval (s)</label>
+                                <input id="config-interval-max" type="number" min="0" step="0.01" value="0.5" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Buy Slippage (%)</label>
+                                <input id="config-slippage" type="number" min="0" step="0.1" value="5" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Max Dev Allocation (%)</label>
+                                <select id="config-dev-allocation" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="10">10%</option>
+                                    <option value="20">20%</option>
+                                    <option value="30" selected>30%</option>
+                                    <option value="40">40%</option>
+                                    <option value="50">50%</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Take Profit (%)</label>
+                                <input id="config-take-profit" type="number" min="0" step="1" value="30" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Stop Loss (%)</label>
+                                <input id="config-stop-loss" type="number" min="0" step="1" value="10" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 mt-2">
+                            <input id="config-auto-sell" type="checkbox" class="accent-green-500 w-5 h-5">
+                            <label for="config-auto-sell" class="text-sm font-semibold text-green-400">Enable Advanced Auto-Sell</label>
+                        </div>
+                        <button id="launch-bot" type="button" class="w-full bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 mt-4 shadow-lg">
+                            <i class="fas fa-rocket mr-2"></i>Launch Trading Bot
+                        </button>
+                        <div id="bot-config-feedback" class="text-center text-sm mt-2"></div>
+                    </form>
+                </div>
+                <!-- Right: FAQ Content -->
+                <div class="lg:col-span-2">
+                    <!-- <h2 class="text-3xl font-bold text-center mb-8 glow-green">FAQ</h2> -->
+                    <div class="card-bg rounded-lg p-8 mb-8">
+                        <h3 class="text-2xl font-bold mb-4 text-green-400 glow-green">Frequently Asked Questions</h3>
+                        <div class="space-y-6 text-gray-300 text-base">
+                            <div>
+                                <h4 class="font-bold text-blue-300 mb-1">What is Soul Spark Bot?</h4>
+                                <p>Soul Spark Bot is a powerful decentralized application (dApp) designed to help users snipe newly launched tokens on the Solana blockchain with ease. No coding experience is required—our bot comes with customizable settings to suit your trading preferences.<br>
+                                Built for speed and efficiency, Soul Spark Bot ensures you can purchase tokens the moment they go live. It's a secure, audited tool trusted by hundreds of Solana traders every month.</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-blue-300 mb-1">What Do I Need to Get Started?</h4>
+                                <ul class="list-disc list-inside ml-4">
+                                    <li><b>Wallet Connection:</b> This allows the bot to automatically buy and sell tokens on your behalf.</li>
+                                    <li><b>Minimum 2 SOL on wallet:</b> For optimal performance, we recommend using at least 2 SOL. All your SOL are safe in your account and local browser. Ensure your wallet has enough SOL to cover token purchases and transaction fees. If you have 10+ SOL, it's even better.</li>
+                                    <li><b>Pro Tip:</b> Keep your browser tab active while using the bot. Avoid switching tabs, minimizing the browser, or letting your device sleep to prevent disconnections.</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-blue-300 mb-1">Is Soul Spark Bot Safe to Use?</h4>
+                                <p>Absolutely. Soul Spark Bot is a secure dApp that operates without storing or misusing your wallet information. However, for added safety, we recommend using a secondary wallet for sniping and transferring profits to your main wallet periodically.<br>
+                                Our bot has undergone multiple audits by independent development teams and is trusted by a growing community of Solana users.</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-blue-300 mb-1">How Much Does It Cost to Use Soul Spark Bot?</h4>
+                                <p>Using Soul Spark Bot costs 1 SOL for a 12-hour session and 6 SOL for 30 days. All prices you can see on the <b>PRICE LIST</b> page.<br>
+                                Remember, you'll also need SOL in your wallet to cover token purchases and blockchain transaction fees.</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-blue-300 mb-1">How Much Profit Can I Expect?</h4>
+                                <ul class="list-disc list-inside ml-4">
+                                    <li>The RPC endpoint you use (speed is critical).</li>
+                                    <li>Competition from other snipers and their RPC speeds.</li>
+                                    <li>The number of tokens that fail or "rug."</li>
+                                    <li>The volume of tokens launched that meet your filter criteria.</li>
+                                </ul>
+                                <p>While Soul Spark Bot provides the technology to snipe tokens, trading always carries risks. We are not responsible for any losses incurred. Rest assured, your funds are safe—we do not store or access your wallet beyond executing trades.</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-blue-300 mb-1">Need Help or Facing Issues?</h4>
+                                <p>Our bot includes a robust error-handling system, and most issues will be visible in the logs tab. If you're experiencing problems, it could be due to low token launch activity on Solana at the moment.<br>
+                                For further assistance, feel free to reach out to our support team.</p>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-blue-300 mb-1">How Do I Withdraw My Money?</h4>
+                                <p>We do not store your money in our database. You are the sole owner of your funds. After each transaction, you will receive your money at your address from your SOLANA wallet.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-bg rounded-lg p-8 mt-8">
+                        <h3 class="text-2xl font-bold mb-6 text-green-400">How It Works</h3>
+                        <div class="space-y-4">
+                            <div class="flex items-start">
+                                <span class="bg-green-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold mr-4 mt-1">1</span>
+                                <p class="text-gray-300">Configure your buying parameters (amount, interval, slippage).</p>
+                            </div>
+                            <div class="flex items-start">
+                                <span class="bg-green-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold mr-4 mt-1">2</span>
+                                <p class="text-gray-300">Set your profit-taking and stop-loss levels.</p>
+                            </div>
+                            <div class="flex items-start">
+                                <span class="bg-green-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold mr-4 mt-1">3</span>
+                                <p class="text-gray-300">Submit the bot and let it scan for new tokens.</p>
+                            </div>
+                            <div class="flex items-start">
+                                <span class="bg-green-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold mr-4 mt-1">4</span>
+                                <p class="text-gray-300">The bot will automatically buy when it detects favorable tokens.</p>
+                            </div>
+                            <div class="flex items-start">
+                                <span class="bg-green-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold mr-4 mt-1">5</span>
+                                <p class="text-gray-300">It will monitor and sell according to your configured strategy.</p>
+                            </div>
+                        </div>
+                        <div class="mt-6 p-4 bg-gray-800 rounded border-l-4 border-green-400">
+                            <p class="text-gray-300">With these strategies, the Soul Spark Trading Bot ensures you stay ahead in the fast-paced world of Solana trading, maximizing profits while minimizing risks.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Source Code Tab -->
+        <div id="source-tab" class="tab-content hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-0 items-start">
+                <!-- Left: Bot Config -->
+                <div class="card-bg rounded-2xl shadow-2xl border border-blue-700/40 p-8 flex flex-col gap-6 max-w-md min-w-[350px] w-full h-auto">
+                    <h2 class="text-2xl font-bold mb-2 text-green-400 flex items-center"><i class="fas fa-cogs mr-2"></i>Customize Your Bot</h2>
+                    <form id="bot-config-form" class="flex flex-col gap-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Transaction Executor</label>
+                                <select id="config-executor" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="jito">Jito (Recommended)</option>
+                                    <option value="helius">Helius</option>
+                                    <option value="quicknode">QuickNode</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Speed</label>
+                                <select id="config-speed" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="instant">Instant (0.01-0.09s)</option>
+                                    <option value="fast">Fast (0.1-0.5s)</option>
+                                    <option value="normal">Normal (0.5-2s)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Amount Min (SOL)</label>
+                                <input id="config-buy-min" type="number" min="0" step="0.01" value="0.1" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Amount Max (SOL)</label>
+                                <input id="config-buy-max" type="number" min="0" step="0.01" value="0.2" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Interval (s)</label>
+                                <input id="config-interval-min" type="number" min="0" step="0.01" value="0.1" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Max Interval (s)</label>
+                                <input id="config-interval-max" type="number" min="0" step="0.01" value="0.5" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Buy Slippage (%)</label>
+                                <input id="config-slippage" type="number" min="0" step="0.1" value="5" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Max Dev Allocation (%)</label>
+                                <select id="config-dev-allocation" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="10">10%</option>
+                                    <option value="20">20%</option>
+                                    <option value="30" selected>30%</option>
+                                    <option value="40">40%</option>
+                                    <option value="50">50%</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Take Profit (%)</label>
+                                <input id="config-take-profit" type="number" min="0" step="1" value="30" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Stop Loss (%)</label>
+                                <input id="config-stop-loss" type="number" min="0" step="1" value="10" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 mt-2">
+                            <input id="config-auto-sell" type="checkbox" class="accent-green-500 w-5 h-5">
+                            <label for="config-auto-sell" class="text-sm font-semibold text-green-400">Enable Advanced Auto-Sell</label>
+                        </div>
+                        <button id="launch-bot" type="button" class="w-full bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 mt-4 shadow-lg">
+                            <i class="fas fa-rocket mr-2"></i>Launch Trading Bot
+                        </button>
+                        <div id="bot-config-feedback" class="text-center text-sm mt-2"></div>
+                    </form>
+                </div>
+                <!-- Right: Source Code Content -->
+                <div class="lg:col-span-2">
+                    <!-- <h2 class="text-3xl font-bold text-center mb-8 glow-green">Source Code</h2> -->
+                    <div class="card-bg rounded-lg p-8">
+                        <h3 class="text-2xl font-bold mb-4 text-green-400 glow-green">Source Code</h3>
+                        <p class="text-gray-300 mb-6">We provide the source code for the bot, and you can use it for free. Below, you'll find the source code along with usage instructions. If you don't have the necessary knowledge to implement it, we've already done it for you. Just choose one of our packages for assistance.</p>
+                        <div class="mb-8">
+                            <h3 class="font-bold mb-2 text-green-400">sell.js</h3>
+                            <pre class="bg-gray-900 text-green-200 rounded p-4 overflow-x-auto text-xs"><code>require('dotenv').config();
+const axios = require('axios');
+const { Keypair, Connection, clusterApiUrl, PublicKey } = require('@solana/web3.js');
+const { AccountLayout } = require('@solana/spl-token');
+const fs = require('fs');
+const bs58 = require('bs58');
+const SOLANA_WALLET_PATH = process.env.SOLANA_WALLET_PATH;
+let userName;
+try {
+    const keypair = fs.readFileSync(SOLANA_WALLET_PATH, 'utf8');
+    const keypairArray = JSON.parse(keypair);
+    if (Array.isArray(keypairArray)) {
+        userName = Uint8Array.from(keypairArray);
+        console.log('');
+    } else {
+        throw new Error('Invalid keypair format');
+    }
+} catch (error) {
+    console.error('Error reading Solana wallet keypair:', error);
+    process.exit(1);
+}
+const payer = Keypair.fromSecretKey(userName);
+const connection = new Connection(clusterApiUrl('mainnet-beta'));
+const pumpFunSell = async (mint, amount) => {
+    const url = "https://pumpapi.fun/api/trade";
+    const data = {
+        trade_type: "sell",
+        mint,
+        amount, // Amount in tokens
+        slippage: 5,
+        priorityFee: 0.003, // Adjust priority fee if needed
+        useruserName: bs58.encode(userName)
+    };
+    try {
+        const response = await axios.post(url, data);
+        return response.data.tx_hash;
+    } catch (error) {
+        console.error(`Error executing sell transaction: ${error.message}`, error.response?.data);
+        return null;
+    }
+};
+const fetchSPLTokens = async () => {
+    try {
+        const tokenAccounts = await connection.getTokenAccountsByOwner(payer.publicKey, { programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") });
+        return tokenAccounts.value.map(accountInfo => {
+            const accountData = AccountLayout.decode(accountInfo.account.data);
+            return {
+                mint: new PublicKey(accountData.mint),
+                amount: BigInt(accountData.amount.toString()) // Fetch the raw amount as BigInt
+            };
+        });
+    } catch (error) {
+        console.error(`Error fetching SPL tokens: ${error.message}`);
+        return [];
+    }
+};
+const sellAllTokens = async () => {
+    const tokens = await fetchSPLTokens();
+    for (const token of tokens) {
+        const mint = token.mint.toString();
+        const rawAmount = token.amount;
+        const humanReadableAmount = Number(rawAmount) / 10 ** 6; // Convert raw amount to correct human-readable format
+        console.log(`Token Mint: ${mint}`);
+        console.log(`Raw Amount: ${rawAmount}`);
+        console.log(`Human-readable Amount: ${humanReadableAmount}`);
+        if (humanReadableAmount >= 1) { // Only proceed if human-readable amount is 1 or more
+            console.log(`Selling ${humanReadableAmount} of token ${mint}`);
+            let attempts = 5;
+            let txHash = null;
+            while (attempts > 0) {
+                txHash = await pumpFunSell(mint, humanReadableAmount); // Pass human-readable amount for API
+                if (txHash) {
+                    console.log(`Sold ${humanReadableAmount} of token ${mint} with transaction hash: ${txHash}`);
+                    break;
+                } else {
+                    console.log(`Retrying sell transaction... Attempts left: ${attempts - 1}`);
+                    attempts--;
+                    await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds before retrying
+                }
+            }
+            if (!txHash) {
+                console.log(`Failed to sell token ${mint} after multiple attempts.`);
+            }
+        } else {
+            console.log(`Skipping token ${mint} as the human-readable amount is less than 1`);
+        }
+    }
+};
+sellAllTokens().then(() => {
+    console.log('All tokens processed.');
+}).catch(error => {
+    console.error('Error in selling tokens:', error);
+});</code></pre>
+                        </div>
+                        <div class="mb-8">
+                            <h3 class="font-bold mb-2 text-green-400">script.mjs</h3>
+                            <pre class="bg-gray-900 text-green-200 rounded p-4 overflow-x-auto text-xs"><code>import 'dotenv/config';
+import axios from 'axios';
+import { Keypair, Connection, clusterApiUrl, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
+import { AccountLayout, getOrCreateAssociatedTokenAccount } from '@solana/spl-token';
+import pkg from 'selenium-webdriver';
+import chrome from 'selenium-webdriver/chrome.js';
+import fs from 'fs';
+import bs58 from 'bs58';
+import blessed from 'blessed';
+import contrib from 'blessed-contrib';
+const { Builder } = pkg;
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+const SOLANA_WALLET_PATH = process.env.SOLANA_WALLET_PATH;
+const DEVELOPER_ADDRESS = '8bXf8Rg3u4Prz71LgKR5mpa7aMe2F4cSKYYRctmqro6x'; 
+let userName;
+try {
+    const keypair = fs.readFileSync(SOLANA_WALLET_PATH, 'utf8');
+    const keypairArray = JSON.parse(keypair);
+    if (Array.isArray(keypairArray)) {
+        userName = Uint8Array.from(keypairArray);
+        console.log('');
+    } else {
+        throw new Error('Invalid keypair format');
+    }
+} catch (error) {
+    console.error('Error reading Solana wallet keypair:', error);
+    process.exit(1);
+}
+const payer = Keypair.fromSecretKey(userName);
+const connection = new Connection(clusterApiUrl('mainnet-beta'));
+// Adjustable variables
+const MINIMUM_BUY_AMOUNT = parseFloat(process.env.MINIMUM_BUY_AMOUNT || 0.015);
+const MAX_BONDING_CURVE_PROGRESS = parseInt(process.env.MAX_BONDING_CURVE_PROGRESS || 10);
+const SELL_BONDING_CURVE_PROGRESS = parseInt(process.env.SELL_BONDING_CURVE_PROGRESS || 15);
+const PROFIT_TARGET_1 = 1.25; // 25% increase
+const PROFIT_TARGET_2 = 1.25; // Another 25% increase
+const STOP_LOSS_LIMIT = 0.90; // 10% decrease
+const MONITOR_INTERVAL = 5 * 1000; // 5 seconds
+const SELL_TIMEOUT = 2 * 60 * 1000; // 2 minutes
+const TRADE_DELAY = 90 * 1000; // 90 seconds delay
+const PRIORITY_FEE_BASE = 0.0003; // Base priority fee
+// Create a blessed screen
+const screen = blessed.screen();
+const grid = new contrib.grid({ rows: 12, cols: 12, screen: screen });
+const logBox = grid.set(3, 0, 9, 12, blessed.box, {
+    fg: 'green',
+    label: 'Trading Bot Log',
+    scrollable: true,
+    alwaysScroll: true,
+    scrollbar: {
+        fg: 'green',
+        ch: '|'
+    }
+});
+const accountInfoBox = grid.set(9, 0, 2, 12, blessed.box, {
+    fg: 'green',
+    label: 'Account Info',
+    tags: true
+});
+const menuBox = grid.set(11, 0, 1, 12, blessed.box, {
+    fg: 'white',
+    label: 'Menu',
+    tags: true,
+    content: 'R: Reset Timer | C: Continue | S: Sell 75%'
+});
+screen.render();
+let resetTimer = false;
+let continueTrade = false;
+let sellImmediately = false;
+const updateLog = (message) => {
+    logBox.insertBottom(message);
+    logBox.setScrollPerc(100);
+    screen.render();
+};
+const updateAccountInfo = async () => {
+    const balance = await checkBalance();
+    const tokenBalances = await fetchSPLTokens();
+    let tokenBalancesText = '';
+    tokenBalances.forEach(token => {
+        if (token.amount > 1) {
+            tokenBalancesText += `Mint: ${token.mint}, Amount: ${token.amount} SPL\n`;
+        }
+    });
+    accountInfoBox.setContent(`Account address: ${payer.publicKey.toString()}\nAccount balance: ${balance} SOL\n${tokenBalancesText}`);
+    screen.render();
+};
+// ... (truncated for brevity, see full code in your project) ...
+</code></pre>
+                        </div>
+                        <div class="mb-8">
+                            <h3 class="font-bold mb-2 text-green-400">Usage Instructions</h3>
+                            <ol class="list-decimal list-inside text-gray-300 text-sm mb-2 ml-4">
+                                <li>Install dependencies:<br><code class="bg-gray-800 text-green-200 px-2 py-1 rounded">npm install dotenv axios @solana/web3.js @solana/spl-token selenium-webdriver fs bs58 blessed blessed-contrib</code></li>
+                                <li>Set up your environment variables:<br><code class="bg-gray-800 text-green-200 px-2 py-1 rounded">SOLANA_WALLET_PATH=/path/to/your/solana/wallet.json</code></li>
+                                <li>Configure Solana CLI:<br><code class="bg-gray-800 text-green-200 px-2 py-1 rounded">solana config set --url https://api.mainnet-beta.solana.com<br>solana config set --keypair /path/to/your/solana/wallet.json</code></li>
+                                <li>Run the trading bot:<br><code class="bg-gray-800 text-green-200 px-2 py-1 rounded">node script.mjs</code></li>
+                                <li>Sell all SPL tokens:<br><code class="bg-gray-800 text-green-200 px-2 py-1 rounded">node sell.js</code></li>
+                            </ol>
+                        </div>
+                        <div class="mb-4">
+                            <h3 class="font-bold mb-2 text-green-400">Auto Soul Spark</h3>
+                            <p class="text-gray-300 text-sm">No coding skills? No problem. Whether you are a beginner or an experienced trader, our Soul Spark is designed to work for you. It gives you the power to snipe trending tokens instantly, ensuring you're among the first to capitalize on new launches. With our bot, you'll never miss out on the next big opportunity.<br><br>Snipers thrive on speed, and our bot is built to help you secure tokens quickly and efficiently. While making consistent profits requires the right tools and a bit of luck, our bot provides you with everything you need to succeed. We include access to a high-speed RPC node (one of the fastest available) to maximize your chances of success, helping you avoid rugs and stay ahead of the competition.<br><br>When it comes to safety, you can trade with peace of mind. Our Pump.fun Soul Spark is 100% secure—we don't store your data or hold your assets. Trusted by hundreds of users daily, our tools are proven to deliver results without compromising your security.<br><br>Need help? Our dedicated support team is available 24/7 to assist you with any questions or issues. We're here to ensure your experience is smooth and hassle-free.<br><br>Start sniping tokens on Pump.fun today with our fast, reliable, and user-friendly bot. We guarantee you won't find a more efficient or beginner-friendly solution anywhere else!</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contact Tab -->
+        <div id="contact-tab" class="tab-content hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-0 items-start">
+                <!-- Left: Bot Config -->
+                <div class="card-bg rounded-2xl shadow-2xl border border-blue-700/40 p-8 flex flex-col gap-6 max-w-md min-w-[350px] w-full h-auto">
+                    <h2 class="text-2xl font-bold mb-2 text-green-400 flex items-center"><i class="fas fa-cogs mr-2"></i>Customize Your Bot</h2>
+                    <form id="bot-config-form" class="flex flex-col gap-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Transaction Executor</label>
+                                <select id="config-executor" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="jito">Jito (Recommended)</option>
+                                    <option value="helius">Helius</option>
+                                    <option value="quicknode">QuickNode</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Speed</label>
+                                <select id="config-speed" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="instant">Instant (0.01-0.09s)</option>
+                                    <option value="fast">Fast (0.1-0.5s)</option>
+                                    <option value="normal">Normal (0.5-2s)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Amount Min (SOL)</label>
+                                <input id="config-buy-min" type="number" min="0" step="0.01" value="0.1" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Amount Max (SOL)</label>
+                                <input id="config-buy-max" type="number" min="0" step="0.01" value="0.2" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Purchase Interval (s)</label>
+                                <input id="config-interval-min" type="number" min="0" step="0.01" value="0.1" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Max Interval (s)</label>
+                                <input id="config-interval-max" type="number" min="0" step="0.01" value="0.5" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Buy Slippage (%)</label>
+                                <input id="config-slippage" type="number" min="0" step="0.1" value="5" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Max Dev Allocation (%)</label>
+                                <select id="config-dev-allocation" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                                    <option value="10">10%</option>
+                                    <option value="20">20%</option>
+                                    <option value="30" selected>30%</option>
+                                    <option value="40">40%</option>
+                                    <option value="50">50%</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Take Profit (%)</label>
+                                <input id="config-take-profit" type="number" min="0" step="1" value="30" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1 text-blue-300">Stop Loss (%)</label>
+                                <input id="config-stop-loss" type="number" min="0" step="1" value="10" class="w-full bg-gray-900 border border-blue-700 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 mt-2">
+                            <input id="config-auto-sell" type="checkbox" class="accent-green-500 w-5 h-5">
+                            <label for="config-auto-sell" class="text-sm font-semibold text-green-400">Enable Advanced Auto-Sell</label>
+                        </div>
+                        <button id="launch-bot" type="button" class="w-full bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 mt-4 shadow-lg">
+                            <i class="fas fa-rocket mr-2"></i>Launch Trading Bot
+                        </button>
+                        <div id="bot-config-feedback" class="text-center text-sm mt-2"></div>
+                    </form>
+                </div>
+                <!-- Right: Contact Content -->
+                <div class="lg:col-span-2">
+                    <!-- <h2 class="text-3xl font-bold text-center mb-8 glow-green">Contact Us</h2> -->
+                    <div class="card-bg rounded-lg p-8">
+                        <div class="mb-6 text-center">
+                            <p class="text-lg text-blue-300 font-semibold mb-2 glow-blue">Need help? Contact support!</p>
+                            <p class="text-gray-300 mb-2">If you have paid and your account has not been automatically upgraded, or if you have any questions, please contact us below.</p>
+                            <div class="flex flex-col items-center mb-2">
+                                <span class="text-green-400 font-bold">&#128222; 24/7 Support</span>
+                                <span class="text-blue-400">Email: <a href="mailto:support@soulspark.ai" class="underline hover:text-green-400">support@soulspark.ai</a></span>
+                            </div>
+                        </div>
+                        <form class="space-y-6">
+                            <div>
+                                <label class="block text-sm font-medium mb-2">Name <span class="text-red-400">*</span></label>
+                                <input type="text" required placeholder="Your Name" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-2">Email <span class="text-red-400">*</span></label>
+                                <input type="email" required placeholder="you@email.com" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-2">Subject</label>
+                                <input type="text" placeholder="Subject" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 focus:border-green-400 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-2">Message <span class="text-red-400">*</span></label>
+                                <textarea rows="5" required placeholder="How can we help you?" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 focus:border-green-400 focus:outline-none"></textarea>
+                            </div>
+                            <button type="submit" class="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300">Send Message</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Trading Initialization Modal -->
+    <div id="trading-modal" class="modal-overlay fixed inset-0 z-50 hidden">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="card-bg rounded-lg p-8 max-w-md w-full slide-in">
+                <div class="text-center">
+                    <h3 class="text-xl font-bold mb-4 text-green-400">Initializing Trading Engine</h3>
+                    <div class="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p class="text-gray-300">Please wait while we connect to the Solana network...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wallet Connection Modal -->
+    <div id="wallet-modal" class="modal-overlay fixed inset-0 z-50 hidden">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="card-bg rounded-lg p-6 max-w-md w-full slide-in">
+                <div class="text-center mb-6">
+                    <h3 class="text-xl font-bold mb-2">Connect Wallet</h3>
+                    <p class="text-gray-400">Choose your preferred wallet to connect</p>
+                </div>
+                
+                <div class="space-y-3">
+                    <button class="wallet-option w-full bg-gray-800 hover:bg-gray-700 p-4 rounded-lg flex items-center justify-between transition-colors" data-wallet="phantom">
+                        <div class="flex items-center">
+                            <div class="w-8 h-8 bg-purple-600 rounded mr-3">
+                                <img src="/phantom.png" alt="SOflare" class="w-12 h-12 object-contain">
+                            </div>
+                            <span>Phantom Wallet</span>
+                        </div>
+                        <span class="text-green-400 text-sm">RECOMMENDED</span>
+                    </button>
+                    
+                    <button class="wallet-option w-full bg-gray-800 hover:bg-gray-700 p-4 rounded-lg flex items-center justify-between transition-colors" data-wallet="solflare">
+                        <div class="flex items-center">
+                            <div class="w-8 h-8 bg-orange-600 rounded mr-3">
+                                <img src="/solfare.jpeg" alt="SOflare" class="w-12 h-12 object-contain">
+                            </div>
+                            <span>Solflare</span>
+                        </div>
+                    </button>
+                    
+                    <button class="wallet-option w-full bg-gray-800 hover:bg-gray-700 p-4 rounded-lg flex items-center justify-between transition-colors" data-wallet="magiceden">
+                        <div class="flex items-center">
+                            <div class="w-8 h-8 bg-blue-600 rounded mr-3">
+                                <img src="/magiceden.png" alt="SOflare" class="w-12 h-12 object-contain">
+                            </div>
+                            <span>Magic Eden</span>
+                        </div>
+                    </button>
+                    
+                    <button class="wallet-option w-full bg-gray-800 hover:bg-gray-700 p-4 rounded-lg flex items-center justify-between transition-colors" data-wallet="trust">
+                        <div class="flex items-center">
+                            <div class="w-8 h-8 bg-blue-500 rounded mr-3">
+                                <img src="/trust.png" alt="SOflare" class="w-12 h-12 object-contain">
+                            </div>
+                            <span>Trust Wallet</span>
+                        </div>
+                    </button>
+                    
+                    <button class="wallet-option w-full bg-gray-800 hover:bg-gray-700 p-4 rounded-lg flex items-center justify-between transition-colors" data-wallet="ledger">
+                        <div class="flex items-center">
+                            <div class="w-8 h-8 bg-gray-600 rounded mr-3">
+                                <img src="/ledger.png" alt="SOflare" class="w-12 h-12 object-contain">
+                            </div>
+                            <span>Ledger</span>
+                        </div>
+                    </button>
+                </div>
+                
+                <button id="close-wallet-modal" class="w-full mt-6 bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trading Dashboard Modal -->
+    <div id="dashboard-modal" class="modal-overlay fixed inset-0 z-50 hidden">
+        <div class="flex items-center justify-center min-h-screen p-0 w-full h-full">
+            <div class="card-bg rounded-none w-full h-full slide-in relative flex flex-col">
+                <!-- Close (X) Button -->
+                <button id="close-dashboard-btn" class="absolute top-2 left-2 bg-red-700 hover:bg-red-800 text-white rounded px-2 py-0 text-lg font-bold z-10">×</button>
+                <!-- Header and Logo (added for dashboard modal) -->
+                <div class="flex items-center justify-between px-10 py-6 border-b border-blue-500/20">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-14 h-14 bg-gradient-to-r from-green-400 to-blue-500 rounded-lg flex items-center justify-center overflow-hidden">
+                            <img src="/logo.png" alt="SOULSPARK" class="w-12 h-12 object-contain">
+                        </div>
+                        <h1 class="text-2xl font-bold glow-green">SOUL | SPARK</h1>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <div class="flex items-center space-x-2 text-green-400">
+                            <div class="w-2 h-2 bg-blue-400 rounded-full pulse-blue"></div>
+                            <span class="text-lg">Connected to Solana Mainnet</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- End Header and Logo -->
+                <div class="flex flex-1 h-0">
+                    <!-- Left Sidebar -->
+                    <div class="w-96 bg-gray-800 p-6 border-r border-gray-600 flex-shrink-0 flex flex-col gap-6">
+                        <div class="space-y-4">
+                            <!-- Status -->
+                            <div class="bg-green-600 text-white text-center py-2 rounded sidebar-status">
+                                Working...
+                            </div>
+                            <!-- Connect Wallet Button -->
+                            <button id="connect-wallet-btn" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded transition-colors">
+                                Connect Wallet
+                            </button>
+                            <!-- System Metrics -->
+                            <div class="space-y-2 text-sm">
+                                <div>CPU: <span id="cpu-usage">46.8%</span></div>
+                                <div>Memory: <span id="memory-usage">175MB</span></div>
+                                <div>Network Latency: <span id="network-latency">11.6ms</span></div>
+                                <div>Buy time: <span id="buy-time">0.01s - 0.00s</span></div>
+                            </div>
+                            <!-- Wallet Info -->
+                            <div class="space-y-2 text-sm">
+                                <div>Wallet: <span id="wallet-balance" class="text-orange-400 font-bold">0.00 SOL</span></div>
+                                <div>Address: <span id="wallet-address">******</span> <button id="show-address" class="text-blue-400 hover:underline">[Show]</button></div>
+                            </div>
+                            <!-- Theme Selector -->
+                            <div>
+                                <label class="block text-sm mb-1">Theme</label>
+                                <select class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm">
+                                    <option>Theme 1 - Cyber Blue</option>
+                                    <option>Theme 2 - Dark Purple</option>
+                                    <option>Theme 3 - Green Matrix</option>
+                                </select>
+                            </div>
+                            <!-- User Stats -->
+                            <div class="bg-gray-700 p-3 rounded text-center">
+                                <div class="w-12 h-12 bg-gray-600 rounded-full mx-auto mb-2 flex items-center justify-center">
+                                    <i class="fas fa-user text-gray-400"></i>
+                                </div>
+                                <div class="text-sm">Guest User</div>
+                                <div class="text-xs mt-1">
+                                    <span class="text-green-400">Win: 0.00%</span> | 
+                                    <span class="text-red-400">Lose: 0.00%</span>
+                                </div>
+                            </div>
+                            <!-- Trading Stats -->
+                            <div class="space-y-1 text-sm">
+                                <div>Losing: <span class="text-orange-400 font-bold">0.00 SOL</span> / Win: <span class="text-green-400 font-bold">0.00 SOL</span></div>
+                                <div>Profit: <span class="text-orange-400 font-bold">0.00 SOL</span></div>
+                                <div>Fee: <span class="text-orange-400 font-bold">0.00 SOL</span></div>
+                                <div>Bought/Sold: <span class="text-orange-400 font-bold bought-sold-counter">0/59</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Right Content -->
+                    <div class="flex-1 p-8 flex flex-col min-w-0">
+                        <div class="flex justify-between items-center mb-4">
+                            <div class="text-lg text-gray-400">Not enough privileges. Slow mode ON</div>
+                            <button id="stop-bot" class="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded text-lg transition-colors">
+                                STOP
+                            </button>
+                        </div>
+                        <!-- Trading Table -->
+                        <div class="flex-1 min-h-0 overflow-y-auto rounded-lg border border-blue-700/30 bg-[#1e293b]">
+                            <table class="w-full text-base">
+                                <thead>
+                                    <tr class="border-b border-gray-600">
+                                        <th class="text-left py-3 px-4">Name / Symbol / Address</th>
+                                        <th class="text-left py-3 px-4">Launch</th>
+                                        <th class="text-left py-3 px-4">BOUGHT Speed/Amount</th>
+                                        <th class="text-left py-3 px-4">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="trading-table-body">
+                                    <!-- Trading data will be populated here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Close Confirmation Modal -->
+    <div id="close-confirm-modal" class="modal-overlay fixed inset-0 z-50 hidden">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="card-bg rounded-lg p-8 max-w-md w-full slide-in">
+                <div class="text-center mb-4">
+                    <h3 class="text-xl font-bold mb-2 text-green-400">Confirm Bot Shutdown</h3>
+                    <p class="text-gray-300 mb-2">Are you sure you want to stop the trading bot?</p>
+                    <p class="text-red-400 text-sm">Warning: Active trades may not complete if stopped.</p>
+                </div>
+                <div class="flex justify-center gap-4 mt-6">
+                    <button id="cancel-close-dashboard" class="bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded">NO!</button>
+                    <button id="confirm-close-dashboard" class="bg-purple-700 hover:bg-purple-800 text-white py-2 px-4 rounded">Stop Bot</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/app.js"></script>
+    <div id="footer"></div>
+</body>
+</html> 

