@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phantom Wallet Test</title>
+    <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+        }
+        .container {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #333;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success { background: #10b981; }
+        .error { background: #ef4444; }
+        .info { background: #3b82f6; }
+        .wallet-info {
+            background: #333;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 Phantom Wallet Connection Test</h1>
+        
+        <div id="status" class="status info">
+            Checking for Phantom wallet...
+        </div>
+        
+        <div id="wallet-info" class="wallet-info" style="display: none;">
+            <h3>Wallet Information:</h3>
+            <p><strong>Address:</strong> <span id="wallet-address">Not connected</span></p>
+            <p><strong>Balance:</strong> <span id="wallet-balance">Not available</span></p>
+        </div>
+        
+        <div>
+            <button id="connect-btn" onclick="connectWallet()">Connect Phantom Wallet</button>
+            <button id="disconnect-btn" onclick="disconnectWallet()" disabled>Disconnect</button>
+            <button onclick="window.location.href='/'">Back to Main App</button>
+        </div>
+        
+        <div id="logs" style="margin-top: 20px; background: #000; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto;">
+            <div>Console logs will appear here...</div>
+        </div>
+    </div>
+
+    <script>
+        let walletConnected = false;
+        let walletAddress = null;
+        
+        function log(message) {
+            const logsDiv = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString();
+            logsDiv.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function updateStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+        
+        function checkPhantomWallet() {
+            log('Checking for Phantom wallet...');
+            
+            if (window.solana && window.solana.isPhantom) {
+                log('✅ Phantom wallet detected!');
+                updateStatus('Phantom wallet detected! Click "Connect" to connect.', 'success');
+                document.getElementById('connect-btn').disabled = false;
+                
+                // Check if already connected
+                if (window.solana.isConnected) {
+                    log('Wallet already connected');
+                    connectWallet();
+                }
+            } else {
+                log('❌ Phantom wallet not found');
+                updateStatus('Phantom wallet not found. Please install the Phantom extension from https://phantom.app/', 'error');
+                document.getElementById('connect-btn').disabled = true;
+            }
+        }
+        
+        async function connectWallet() {
+            if (!window.solana || !window.solana.isPhantom) {
+                updateStatus('Phantom wallet not available', 'error');
+                return;
+            }
+            
+            try {
+                log('Attempting to connect to Phantom wallet...');
+                updateStatus('Connecting to wallet...', 'info');
+                
+                const resp = await window.solana.connect();
+                walletConnected = true;
+                walletAddress = resp.publicKey.toString();
+                
+                log(`✅ Connected! Address: ${walletAddress}`);
+                updateStatus('Wallet connected successfully!', 'success');
+                
+                // Update UI
+                document.getElementById('wallet-address').textContent = walletAddress;
+                document.getElementById('wallet-info').style.display = 'block';
+                document.getElementById('connect-btn').disabled = true;
+                document.getElementById('disconnect-btn').disabled = false;
+                
+                // Fetch balance
+                try {
+                    log('Fetching wallet balance...');
+                    const connection = new solanaWeb3.Connection('https://api.mainnet-beta.solana.com');
+                    const balance = await connection.getBalance(resp.publicKey);
+                    const solBalance = (balance / 1e9).toFixed(4);
+                    document.getElementById('wallet-balance').textContent = solBalance + ' SOL';
+                    log(`Balance: ${solBalance} SOL`);
+                } catch (balanceError) {
+                    log(`Error fetching balance: ${balanceError.message}`);
+                    document.getElementById('wallet-balance').textContent = 'Error fetching balance';
+                }
+                
+            } catch (err) {
+                log(`❌ Connection failed: ${err.message}`);
+                updateStatus(`Connection failed: ${err.message}`, 'error');
+            }
+        }
+        
+        function disconnectWallet() {
+            if (window.solana) {
+                window.solana.disconnect();
+                walletConnected = false;
+                walletAddress = null;
+                
+                log('Wallet disconnected');
+                updateStatus('Wallet disconnected', 'info');
+                
+                // Update UI
+                document.getElementById('wallet-address').textContent = 'Not connected';
+                document.getElementById('wallet-balance').textContent = 'Not available';
+                document.getElementById('wallet-info').style.display = 'none';
+                document.getElementById('connect-btn').disabled = false;
+                document.getElementById('disconnect-btn').disabled = true;
+            }
+        }
+        
+        // Initialize
+        window.addEventListener('load', () => {
+            log('Page loaded, checking for Phantom wallet...');
+            checkPhantomWallet();
+            
+            // Listen for wallet events
+            if (window.solana) {
+                window.solana.on('connect', () => {
+                    log('Wallet connected event fired');
+                });
+                
+                window.solana.on('disconnect', () => {
+                    log('Wallet disconnected event fired');
+                    disconnectWallet();
+                });
+            }
+        });
+    </script>
+</body>
+</html> 

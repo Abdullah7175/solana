@@ -142,8 +142,9 @@ io.on('connection', (socket) => {
 });
 
 // Start Server
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`🚀 soul spark Dashboard running at http://localhost:${PORT}`);
+const PORT = process.env.PORT || 80;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 soul spark Dashboard running at http://0.0.0.0:${PORT}`);
+  console.log(`🌐 Access from internet: http://YOUR_DROPLET_IP:${PORT}`);
   tradingEngine.boot(io); // Check Auto-Restart on server start
 }); 

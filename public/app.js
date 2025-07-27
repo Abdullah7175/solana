@@ -23,6 +23,27 @@
         tradingTableBody: document.getElementById('trading-table-body')
     };
 
+    // Check if Phantom wallet is available
+    function checkPhantomWallet() {
+        if (window.solana && window.solana.isPhantom) {
+            console.log('Phantom wallet detected');
+            // Update UI to show Phantom is available
+            const phantomBtn = document.querySelector('[data-wallet="phantom"]');
+            if (phantomBtn) {
+                phantomBtn.classList.remove('opacity-50');
+                phantomBtn.classList.add('hover:bg-blue-600');
+            }
+        } else {
+            console.log('Phantom wallet not detected');
+            // Update UI to show Phantom is not available
+            const phantomBtn = document.querySelector('[data-wallet="phantom"]');
+            if (phantomBtn) {
+                phantomBtn.classList.add('opacity-50');
+                phantomBtn.classList.remove('hover:bg-blue-600');
+            }
+        }
+    }
+
     // Initialize the application
     function init() {
         setupEventListeners();
@@ -30,6 +51,23 @@
         generateTradingData();
         setInterval(updateSystemMetrics, 5000);
         setInterval(updateTradingData, 3000);
+        
+        // Check for Phantom wallet
+        checkPhantomWallet();
+        
+        // Listen for wallet changes
+        if (window.solana) {
+            window.solana.on('connect', () => {
+                console.log('Wallet connected');
+                checkPhantomWallet();
+            });
+            
+            window.solana.on('disconnect', () => {
+                console.log('Wallet disconnected');
+                walletConnected = false;
+                checkPhantomWallet();
+            });
+        }
     }
 
     // Setup all event listeners
@@ -171,27 +209,60 @@
     // Connect wallet (real wallet extension integration for Phantom)
     async function connectWallet(walletType) {
         if (walletType === 'phantom') {
+            // Check if Phantom wallet is installed
             if (window.solana && window.solana.isPhantom) {
                 try {
+                    console.log('Phantom wallet detected, attempting connection...');
+                    
+                    // Request connection to Phantom wallet
                     const resp = await window.solana.connect();
+                    console.log('Wallet connected:', resp);
+                    
+                    // Update UI
                     walletConnected = true;
                     elements.connectWalletBtn.textContent = 'Connected';
                     elements.connectWalletBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
                     elements.connectWalletBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
-                    document.getElementById('wallet-address').textContent = resp.publicKey.toString();
-                    // Fetch balance
-                    const connection = new window.solanaWeb3.Connection('https://api.mainnet-beta.solana.com');
-                    const balance = await connection.getBalance(resp.publicKey);
-                    document.getElementById('wallet-balance').textContent = (balance / 1e9).toFixed(2) + ' SOL';
+                    
+                    // Display wallet address
+                    const walletAddress = resp.publicKey.toString();
+                    document.getElementById('wallet-address').textContent = walletAddress;
+                    
+                    // Fetch and display balance
+                    try {
+                        const connection = new solanaWeb3.Connection('https://api.mainnet-beta.solana.com');
+                        const balance = await connection.getBalance(resp.publicKey);
+                        const solBalance = (balance / 1e9).toFixed(4);
+                        document.getElementById('wallet-balance').textContent = solBalance + ' SOL';
+                        console.log('Balance fetched:', solBalance, 'SOL');
+                    } catch (balanceError) {
+                        console.error('Error fetching balance:', balanceError);
+                        document.getElementById('wallet-balance').textContent = 'Balance unavailable';
+                    }
+                    
+                    // Update trading table
                     updateTradingTableWithWallet();
+                    
+                    // Show success message
+                    showNotification('Phantom wallet connected successfully!', 'success');
+                    
                 } catch (err) {
-                    alert('Wallet connection failed: ' + err.message);
+                    console.error('Wallet connection failed:', err);
+                    showNotification('Wallet connection failed: ' + err.message, 'error');
                 }
             } else {
-                alert('Phantom Wallet not found. Please install the Phantom extension.');
+                console.log('Phantom wallet not found');
+                showNotification('Phantom Wallet not found. Please install the Phantom extension from https://phantom.app/', 'error');
+                
+                // Open Phantom installation page
+                setTimeout(() => {
+                    if (confirm('Would you like to install Phantom Wallet?')) {
+                        window.open('https://phantom.app/', '_blank');
+                    }
+                }, 1000);
             }
         } else {
-            alert(`Connecting to ${walletType} wallet... (integration coming soon)`);
+            showNotification(`Connecting to ${walletType} wallet... (integration coming soon)`, 'info');
         }
         hideWalletModal();
     }
@@ -208,6 +279,52 @@
             addressElement.textContent = '******';
             showButton.textContent = '[Show]';
         }
+    }
+
+    // Show notification
+    function showNotification(message, type = 'info') {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = `fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm transform transition-all duration-300 translate-x-full`;
+        
+        // Set colors based on type
+        switch(type) {
+            case 'success':
+                notification.className += ' bg-green-600 text-white';
+                break;
+            case 'error':
+                notification.className += ' bg-red-600 text-white';
+                break;
+            case 'warning':
+                notification.className += ' bg-yellow-600 text-white';
+                break;
+            default:
+                notification.className += ' bg-blue-600 text-white';
+        }
+        
+        notification.innerHTML = `
+            <div class="flex items-center">
+                <span class="mr-2">${type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️'}</span>
+                <span>${message}</span>
+            </div>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Animate in
+        setTimeout(() => {
+            notification.classList.remove('translate-x-full');
+        }, 100);
+        
+        // Auto remove after 5 seconds
+        setTimeout(() => {
+            notification.classList.add('translate-x-full');
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }, 5000);
     }
 
     // Hide all modals
