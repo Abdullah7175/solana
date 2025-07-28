@@ -336,6 +336,45 @@ app.get('/api/settings', (req, res) => {
   }
 });
 
+// Safety settings endpoints
+app.post('/api/safety-settings', (req, res) => {
+  try {
+    const safetySettings = {
+      top10HoldersMax: parseInt(req.body.top10HoldersMax) || 50,
+      bundledMax: parseInt(req.body.bundledMax) || 20,
+      maxSameBlockBuys: parseInt(req.body.maxSameBlockBuys) || 3,
+      safetyCheckPeriod: parseInt(req.body.safetyCheckPeriod) || 30,
+      requireSocials: req.body.requireSocials !== undefined ? req.body.requireSocials : true,
+      requireLiquidityBurnt: req.body.requireLiquidityBurnt !== undefined ? req.body.requireLiquidityBurnt : true,
+      requireImmutableMetadata: req.body.requireImmutableMetadata !== undefined ? req.body.requireImmutableMetadata : true,
+      requireMintAuthorityRenounced: req.body.requireMintAuthorityRenounced !== undefined ? req.body.requireMintAuthorityRenounced : true,
+      requireFreezeAuthorityRenounced: req.body.requireFreezeAuthorityRenounced !== undefined ? req.body.requireFreezeAuthorityRenounced : true,
+      onlyPumpFunMigrated: req.body.onlyPumpFunMigrated !== undefined ? req.body.onlyPumpFunMigrated : true,
+      minPoolSize: parseInt(req.body.minPoolSize) || 5000
+    };
+    
+    tradingEngine.updateSafetySettings(safetySettings);
+    res.json({ success: true, message: 'Safety settings updated successfully' });
+  } catch (error) {
+    console.error('Safety settings update error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update safety settings: ' + error.message 
+    });
+  }
+});
+
+app.get('/api/safety-settings', (req, res) => {
+  try {
+    res.json(tradingEngine.getSafetySettings());
+  } catch (error) {
+    console.error('Get safety settings error:', error);
+    res.status(500).json({ 
+      error: 'Failed to get safety settings: ' + error.message 
+    });
+  }
+});
+
 // Auto restart endpoints
 app.post('/api/auto-restart', (req, res) => {
   try {

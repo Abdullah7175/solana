@@ -601,8 +601,75 @@
             devAllocation: parseInt(document.getElementById(`config-dev-allocation${prefix}`).value),
             takeProfit: parseInt(document.getElementById(`config-take-profit${prefix}`).value),
             stopLoss: parseInt(document.getElementById(`config-stop-loss${prefix}`).value),
-            autoSell: document.getElementById(`config-auto-sell${prefix}`).checked
+            autoSell: document.getElementById(`config-auto-sell${prefix}`).checked,
+            // Advanced Safety Settings
+            top10HoldersMax: parseInt(document.getElementById(`config-top10-holders${prefix}`)?.value || 50),
+            bundledMax: parseInt(document.getElementById(`config-bundled-max${prefix}`)?.value || 20),
+            maxSameBlockBuys: parseInt(document.getElementById(`config-same-block-buys${prefix}`)?.value || 3),
+            safetyCheckPeriod: parseInt(document.getElementById(`config-safety-check-period${prefix}`)?.value || 30),
+            requireSocials: document.getElementById(`config-require-socials${prefix}`)?.checked || true,
+            requireLiquidityBurnt: document.getElementById(`config-require-liquidity-burnt${prefix}`)?.checked || true,
+            requireImmutableMetadata: document.getElementById(`config-require-immutable-metadata${prefix}`)?.checked || true,
+            requireMintAuthorityRenounced: document.getElementById(`config-require-mint-authority-renounced${prefix}`)?.checked || true,
+            requireFreezeAuthorityRenounced: document.getElementById(`config-require-freeze-authority-renounced${prefix}`)?.checked || true,
+            onlyPumpFunMigrated: document.getElementById(`config-only-pump-fun-migrated${prefix}`)?.checked || true,
+            minPoolSize: parseInt(document.getElementById(`config-min-pool-size${prefix}`)?.value || 5000)
         };
+    }
+
+    // Setup safety settings sliders
+    function setupSafetySliders() {
+        const sliders = [
+            { id: 'config-top10-holders', valueId: 'top10-value' },
+            { id: 'config-bundled-max', valueId: 'bundled-value' },
+            { id: 'config-same-block-buys', valueId: 'same-block-value' },
+            { id: 'config-safety-check-period', valueId: 'safety-check-value' },
+            { id: 'config-min-pool-size', valueId: 'pool-size-value' }
+        ];
+
+        sliders.forEach(({ id, valueId }) => {
+            const slider = document.getElementById(id);
+            const valueDisplay = document.getElementById(valueId);
+            
+            if (slider && valueDisplay) {
+                // Update display on load
+                valueDisplay.textContent = slider.value;
+                
+                // Update display on change
+                slider.addEventListener('input', (e) => {
+                    valueDisplay.textContent = e.target.value;
+                });
+            }
+        });
+    }
+
+    // Setup safety settings checkboxes
+    function setupSafetyCheckboxes() {
+        const checkboxes = [
+            'config-require-socials',
+            'config-require-liquidity-burnt',
+            'config-require-immutable-metadata',
+            'config-require-mint-authority-renounced',
+            'config-require-freeze-authority-renounced',
+            'config-only-pump-fun-migrated'
+        ];
+
+        checkboxes.forEach(id => {
+            const checkbox = document.getElementById(id);
+            if (checkbox) {
+                // Add visual feedback
+                checkbox.addEventListener('change', (e) => {
+                    const label = e.target.nextElementSibling;
+                    if (e.target.checked) {
+                        label.classList.add('text-green-400');
+                        label.classList.remove('text-gray-400');
+                    } else {
+                        label.classList.add('text-gray-400');
+                        label.classList.remove('text-green-400');
+                    }
+                });
+            }
+        });
     }
 
     // Helper: Send config to backend and start bot
@@ -775,6 +842,8 @@
             setupBuyModal();
             setupConfigPanel();
             setupDashboardCloseLogic();
+            setupSafetySliders();
+            setupSafetyCheckboxes();
             hideLoadingOverlay();
         });
     } else {
@@ -783,6 +852,8 @@
         setupBuyModal();
         setupConfigPanel();
         setupDashboardCloseLogic();
+        setupSafetySliders();
+        setupSafetyCheckboxes();
         hideLoadingOverlay();
     }
 
