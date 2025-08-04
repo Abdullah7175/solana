@@ -364,33 +364,67 @@
             } else {
                 console.error('Failed to load dashboard data:', response.status, response.statusText);
                 showNotification('Failed to load dashboard data', 'error');
+                // Show fallback data
+                updateDashboardStats({
+                    userStats: {
+                        totalUsers: 0,
+                        activeUsers: 0,
+                        activeLicenses: 0,
+                        expiredLicenses: 0,
+                        recentLogins: []
+                    },
+                    tradingStats: {
+                        running: false,
+                        connectedUsers: 0,
+                        autoRestart: false
+                    }
+                });
             }
         } catch (error) {
             console.error('Failed to load dashboard data:', error);
             showNotification('Network error loading dashboard data', 'error');
+            // Show fallback data
+            updateDashboardStats({
+                userStats: {
+                    totalUsers: 0,
+                    activeUsers: 0,
+                    activeLicenses: 0,
+                    expiredLicenses: 0,
+                    recentLogins: []
+                },
+                tradingStats: {
+                    running: false,
+                    connectedUsers: 0,
+                    autoRestart: false
+                }
+            });
         }
     }
 
     function updateDashboardStats(data) {
         const { userStats, tradingStats } = data;
         
-        // Update stat cards
-        document.getElementById('totalUsers').textContent = userStats.totalUsers;
-        document.getElementById('activeUsers').textContent = userStats.activeUsers;
-        document.getElementById('activeLicenses').textContent = userStats.activeLicenses;
-        document.getElementById('expiredLicenses').textContent = userStats.expiredLicenses;
+        // Update stat cards with safe defaults
+        document.getElementById('totalUsers').textContent = userStats?.totalUsers || 0;
+        document.getElementById('activeUsers').textContent = userStats?.activeUsers || 0;
+        document.getElementById('activeLicenses').textContent = userStats?.activeLicenses || 0;
+        document.getElementById('expiredLicenses').textContent = userStats?.expiredLicenses || 0;
         
         // Update recent logins
         const recentLoginsContainer = document.getElementById('recentLogins');
-        recentLoginsContainer.innerHTML = userStats.recentLogins.map(login => `
-            <div class="flex justify-between items-center p-3 bg-gray-700 rounded">
-                <div>
-                    <p class="font-semibold">${login.username}</p>
-                    <p class="text-sm text-gray-400">${login.role}</p>
+        if (userStats?.recentLogins && userStats.recentLogins.length > 0) {
+            recentLoginsContainer.innerHTML = userStats.recentLogins.map(login => `
+                <div class="flex justify-between items-center p-3 bg-gray-700 rounded">
+                    <div>
+                        <p class="font-semibold">${login.username}</p>
+                        <p class="text-sm text-gray-400">${login.role}</p>
+                    </div>
+                    <p class="text-sm text-gray-400">${new Date(login.lastLogin).toLocaleString()}</p>
                 </div>
-                <p class="text-sm text-gray-400">${new Date(login.lastLogin).toLocaleString()}</p>
-            </div>
-        `).join('');
+            `).join('');
+        } else {
+            recentLoginsContainer.innerHTML = '<p class="text-gray-400 text-center py-4">No recent logins</p>';
+        }
         
         // Update trading status
         const tradingStatusContainer = document.getElementById('tradingStatus');
@@ -398,18 +432,18 @@
             <div class="space-y-3">
                 <div class="flex justify-between">
                     <span>Bot Status:</span>
-                    <span class="${tradingStats.running ? 'text-green-400' : 'text-red-400'}">
-                        ${tradingStats.running ? 'Running' : 'Stopped'}
+                    <span class="${tradingStats?.running ? 'text-green-400' : 'text-red-400'}">
+                        ${tradingStats?.running ? 'Running' : 'Stopped'}
                     </span>
                 </div>
                 <div class="flex justify-between">
                     <span>Connected Users:</span>
-                    <span>${tradingStats.connectedUsers}</span>
+                    <span>${tradingStats?.connectedUsers || 0}</span>
                 </div>
                 <div class="flex justify-between">
                     <span>Auto Restart:</span>
-                    <span class="${tradingStats.autoRestart ? 'text-green-400' : 'text-red-400'}">
-                        ${tradingStats.autoRestart ? 'Enabled' : 'Disabled'}
+                    <span class="${tradingStats?.autoRestart ? 'text-green-400' : 'text-red-400'}">
+                        ${tradingStats?.autoRestart ? 'Enabled' : 'Disabled'}
                     </span>
                 </div>
             </div>

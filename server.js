@@ -626,8 +626,20 @@ app.get('/api/admin/validate-token', adminPanel.authenticateToken, adminPanel.re
 
 app.get('/api/admin/stats', adminPanel.authenticateToken, adminPanel.requireAdmin, (req, res) => {
     try {
-        const stats = adminPanel.getUserStats();
-        res.json(stats);
+        const userStats = adminPanel.getUserStats();
+        
+        // Add trading stats structure that frontend expects
+        const tradingStats = {
+            running: false, // Default to false, can be updated based on actual bot status
+            connectedUsers: 0, // Default to 0, can be updated based on actual connections
+            autoRestart: false // Default to false, can be updated based on actual config
+        };
+        
+        // Return the structure that frontend expects
+        res.json({
+            userStats: userStats,
+            tradingStats: tradingStats
+        });
     } catch (error) {
         console.error('Get admin stats error:', error);
         res.status(500).json({ error: 'Failed to get stats' });
