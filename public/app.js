@@ -1,72 +1,76 @@
 (() => {
     const socket = io();
-    let currentTab = 'home';
     let walletConnected = false;
-    let tradingActive = false;
-    let tradingData = [];
-    let tradingInterval = null;
-    let rowsLimit = 59;
+    let currentWallet = null;
+    let userToken = null;
+    let botRunning = false;
+    let logs = [];
+    let settings = {
+        buyMode: 'fixed',
+        fixedBuyAmount: 0.1,
+        minBuyAmount: 0.1,
+        maxBuyAmount: 0.2,
+        profitTarget1: 25,
+        profitTarget2: 50,
+        stopLoss: 10,
+        minLiquidity: 1000,
+        top10HoldersMax: 50,
+        bundledMax: 20,
+        maxSameBlock: 3,
+        safetyCheckPeriod: 30,
+        minPoolSize: 5000,
+        requireSocials: false,
+        requireLiquidityBurnt: false,
+        requireImmutableMetadata: false,
+        requireMintAuthorityRenounced: false,
+        requireFreezeAuthorityRenounced: false,
+        onlyPumpFunMigrated: false
+    };
 
     // DOM Elements
     const elements = {
         navTabs: document.querySelectorAll('.nav-tab'),
         tabContents: document.querySelectorAll('.tab-content'),
-        tradingModal: document.getElementById('trading-modal'),
-        walletModal: document.getElementById('wallet-modal'),
-        dashboardModal: document.getElementById('dashboard-modal'),
-        launchButtons: document.querySelectorAll('#launch-bot, #launch-bot-2'),
-        connectWalletBtn: document.getElementById('connect-wallet-btn'),
-        walletOptions: document.querySelectorAll('.wallet-option'),
-        closeWalletModal: document.getElementById('close-wallet-modal'),
-        stopBot: document.getElementById('stop-bot'),
-        showAddress: document.getElementById('show-address'),
-        tradingTableBody: document.getElementById('trading-table-body')
+        launchButtons: document.querySelectorAll('.launch-btn'),
+        stopBot: document.getElementById('stop-bot-btn'),
+        showAddress: document.getElementById('show-address-btn'),
+        loginIcon: document.getElementById('loginIcon'),
+        headerLogoutBtn: document.getElementById('headerLogoutBtn'),
+        tradingDashboard: document.getElementById('trading-dashboard'),
+        userStatus: document.getElementById('userStatus'),
+        userInfo: document.getElementById('userInfo'),
+        botStatus: document.getElementById('bot-status'),
+        totalProfit: document.getElementById('total-profit'),
+        tradesToday: document.getElementById('trades-today'),
+        successRate: document.getElementById('success-rate'),
+        logContainer: document.getElementById('log-container'),
+        loadingOverlay: document.getElementById('loading-overlay'),
+        notificationContainer: document.getElementById('notification-container')
     };
 
-    // Check if Phantom wallet is available
-    function checkPhantomWallet() {
-        if (window.solana && window.solana.isPhantom) {
-            console.log('Phantom wallet detected');
-            // Update UI to show Phantom is available
-            const phantomBtn = document.querySelector('[data-wallet="phantom"]');
-            if (phantomBtn) {
-                phantomBtn.classList.remove('opacity-50');
-                phantomBtn.classList.add('hover:bg-blue-600');
-            }
-        } else {
-            console.log('Phantom wallet not detected');
-            // Update UI to show Phantom is not available
-            const phantomBtn = document.querySelector('[data-wallet="phantom"]');
-            if (phantomBtn) {
-                phantomBtn.classList.add('opacity-50');
-                phantomBtn.classList.remove('hover:bg-blue-600');
-            }
-        }
-    }
-
-    // Initialize the application
+    // Initialize
     function init() {
+        console.log('Initializing Best Sniper Sol...');
         setupEventListeners();
+        setupSocketListeners();
+        checkLoginStatus();
         updateSystemMetrics();
-        generateTradingData();
-        setInterval(updateSystemMetrics, 5000);
-        setInterval(updateTradingData, 3000);
+        startTradingSimulation();
+        setupConfigPanel();
+        setupDashboardCloseLogic();
         
-        // Check for Phantom wallet
+        // Check for existing wallet connection
         checkPhantomWallet();
         
-        // Listen for wallet changes
-        if (window.solana) {
-            window.solana.on('connect', () => {
-                console.log('Wallet connected');
-                checkPhantomWallet();
-            });
-            
-            window.solana.on('disconnect', () => {
-                console.log('Wallet disconnected');
-                walletConnected = false;
-                checkPhantomWallet();
-            });
+        console.log('Initialization complete');
+    }
+
+    // Check if Phantom wallet is already connected
+    function checkPhantomWallet() {
+        if (window.solana && window.solana.isPhantom && window.solana.isConnected) {
+            console.log('Phantom wallet already connected');
+            const walletAddress = window.solana.publicKey.toString();
+            updateWalletUI(walletAddress, 'phantom');
         }
     }
 
@@ -80,18 +84,53 @@
         // Launch bot buttons
         elements.launchButtons.forEach(btn => {
             btn.addEventListener('click', launchTradingBot);
+            // Initially disable until login
+            btn.disabled = true;
+            btn.classList.add('opacity-50');
         });
-
-        // Wallet connection
-        elements.connectWalletBtn.addEventListener('click', showWalletModal);
-        elements.walletOptions.forEach(option => {
-            option.addEventListener('click', () => connectWallet(option.dataset.wallet));
-        });
-        elements.closeWalletModal.addEventListener('click', hideWalletModal);
+        
+        // Login button
+        const loginBtn = document.getElementById('login-btn');
+        if (loginBtn) {
+            loginBtn.addEventListener('click', loginWithLicense);
+        }
+        
+        // Enhanced Wallet Connection - Multiple Wallet Support
+        setupWalletConnections();
+        
+        // Login icon in header
+        if (elements.loginIcon) {
+            console.log('Login icon found, adding event listener');
+            elements.loginIcon.addEventListener('click', showLoginModal);
+        } else {
+            console.error('Login icon not found in DOM');
+            // Try to find it again after a short delay
+            setTimeout(() => {
+                const loginIcon = document.getElementById('loginIcon');
+                if (loginIcon) {
+                    console.log('Login icon found on retry, adding event listener');
+                    loginIcon.addEventListener('click', showLoginModal);
+                } else {
+                    console.error('Login icon still not found after retry');
+                }
+            }, 1000);
+        }
+        
+        // Header logout button
+        if (elements.headerLogoutBtn) {
+            elements.headerLogoutBtn.addEventListener('click', handleLogout);
+        }
+        
+        // Check login status on page load
+        checkLoginStatus();
 
         // Dashboard controls
-        elements.stopBot.addEventListener('click', stopTradingBot);
-        elements.showAddress.addEventListener('click', toggleAddressVisibility);
+        if (elements.stopBot) {
+            elements.stopBot.addEventListener('click', stopTradingBot);
+        }
+        if (elements.showAddress) {
+            elements.showAddress.addEventListener('click', toggleAddressVisibility);
+        }
 
         // Modal backdrop clicks
         document.addEventListener('click', (e) => {
@@ -108,331 +147,749 @@
         });
     }
 
-    // Tab switching functionality
+    // Setup wallet connections for multiple wallet types
+    function setupWalletConnections() {
+        // Phantom Wallet
+        const connectPhantomBtn = document.getElementById('connect-phantom');
+        if (connectPhantomBtn) {
+            connectPhantomBtn.addEventListener('click', () => connectWallet('phantom'));
+        }
+
+        // Solflare Wallet
+        const connectSolflareBtn = document.getElementById('connect-solflare');
+        if (connectSolflareBtn) {
+            connectSolflareBtn.addEventListener('click', () => connectWallet('solflare'));
+        }
+
+        // Backpack Wallet
+        const connectBackpackBtn = document.getElementById('connect-backpack');
+        if (connectBackpackBtn) {
+            connectBackpackBtn.addEventListener('click', () => connectWallet('backpack'));
+        }
+
+        // Ledger Wallet
+        const connectLedgerBtn = document.getElementById('connect-ledger');
+        if (connectLedgerBtn) {
+            connectLedgerBtn.addEventListener('click', () => connectWallet('ledger'));
+        }
+
+        // Disconnect button
+        const disconnectWalletBtn = document.getElementById('disconnect-wallet-btn');
+        if (disconnectWalletBtn) {
+            disconnectWalletBtn.addEventListener('click', disconnectWallet);
+        }
+    }
+
+    // Enhanced wallet connection function - Using client's method
+    async function connectWallet(walletType) {
+        try {
+            console.log(`Attempting to connect ${walletType} wallet...`);
+            
+            if (walletType === 'phantom') {
+                if ('solana' in window) {
+                    const provider = window.solana;
+
+                    if (provider.isPhantom) {
+                        try {
+                            const resp = await provider.connect(); // Triggers Phantom extension popup
+                            const publicKey = resp.publicKey.toString();
+                            console.log('Connected wallet:', publicKey);
+                            
+                            // Check wallet balance before proceeding
+                            const balance = await checkWalletBalance(publicKey);
+                            console.log('Wallet balance:', balance, 'SOL');
+                            
+                            if (balance < 0.01) {
+                                await provider.disconnect();
+                                throw new Error('Insufficient wallet balance. Minimum 0.01 SOL required to connect wallet.');
+                            }
+                            
+                            // Send wallet info to backend with balance
+                            const response = await fetch('/api/connect-wallet', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    walletType: walletType,
+                                    publicKey: publicKey,
+                                    balance: balance
+                                })
+                            });
+
+                            const result = await response.json();
+
+                            if (result.success) {
+                                walletConnected = true;
+                                currentWallet = {
+                                    type: walletType,
+                                    address: publicKey,
+                                    provider: provider,
+                                    balance: balance
+                                };
+
+                                updateWalletUI(publicKey, walletType, balance);
+                                
+                                // Enable launch button if also logged in
+                                const userToken = localStorage.getItem('userToken');
+                                if (userToken) {
+                                    elements.launchButtons.forEach(btn => {
+                                        btn.disabled = false;
+                                        btn.classList.remove('opacity-50');
+                                    });
+                                }
+
+                                showNotification(`Phantom wallet connected successfully! Balance: ${balance.toFixed(4)} SOL`, 'success');
+                                console.log('Wallet connected to backend:', result);
+                            } else {
+                                await provider.disconnect();
+                                throw new Error(result.error || 'Failed to connect wallet to backend');
+                            }
+
+                        } catch (err) {
+                            console.error('User rejected the connection or Phantom is locked', err);
+                            throw new Error(err.message || 'User rejected the connection or Phantom is locked');
+                        }
+                    } else {
+                        throw new Error('Phantom Wallet not detected. Please install it.');
+                    }
+                } else {
+                    // If Phantom extension is not available, show in-app wallet import
+                    showPhantomImportModal();
+                    return;
+                }
+            } else {
+                // For other wallet types, keep existing logic
+                let walletProvider = null;
+                let walletAddress = null;
+
+                switch (walletType) {
+                    case 'solflare':
+                        if (window.solflare) {
+                            const resp = await window.solflare.connect();
+                            walletAddress = resp.publicKey.toString();
+                            walletProvider = window.solflare;
+                        } else {
+                            throw new Error('Solflare wallet not installed. Please install Solflare wallet extension.');
+                        }
+                        break;
+
+                    case 'backpack':
+                        if (window.backpack) {
+                            const resp = await window.backpack.connect();
+                            walletAddress = resp.publicKey.toString();
+                            walletProvider = window.backpack;
+                        } else {
+                            throw new Error('Backpack wallet not installed. Please install Backpack wallet extension.');
+                        }
+                        break;
+
+                    case 'ledger':
+                        showNotification('Ledger wallet connection requires additional setup. Please use Phantom or Solflare for now.', 'warning');
+                        return;
+
+                    default:
+                        throw new Error(`Unsupported wallet type: ${walletType}`);
+                }
+
+                if (walletAddress && walletProvider) {
+                    // Check wallet balance before proceeding
+                    const balance = await checkWalletBalance(walletAddress);
+                    
+                    if (balance < 0.01) {
+                        await walletProvider.disconnect();
+                        throw new Error('Insufficient wallet balance. Minimum 0.01 SOL required to connect wallet.');
+                    }
+                    
+                    // Send wallet info to backend
+                    const response = await fetch('/api/connect-wallet', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            walletType: walletType,
+                            publicKey: walletAddress,
+                            balance: balance
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        walletConnected = true;
+                        currentWallet = {
+                            type: walletType,
+                            address: walletAddress,
+                            provider: walletProvider,
+                            balance: balance
+                        };
+
+                        updateWalletUI(walletAddress, walletType, balance);
+                        
+                        // Enable launch button if also logged in
+                        const userToken = localStorage.getItem('userToken');
+                        if (userToken) {
+                            elements.launchButtons.forEach(btn => {
+                                btn.disabled = false;
+                                btn.classList.remove('opacity-50');
+                            });
+                        }
+
+                        showNotification(`${walletType} wallet connected successfully! Balance: ${balance.toFixed(4)} SOL`, 'success');
+                    } else {
+                        await walletProvider.disconnect();
+                        throw new Error(result.error || 'Failed to connect wallet to backend');
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Wallet connection error:', error);
+            showNotification(error.message, 'error');
+        }
+    }
+
+    // Check wallet balance using Solana RPC
+    async function checkWalletBalance(publicKey) {
+        try {
+            const connection = new solanaWeb3.Connection('https://api.mainnet-beta.solana.com');
+            const balance = await connection.getBalance(new solanaWeb3.PublicKey(publicKey));
+            return balance / solanaWeb3.LAMPORTS_PER_SOL; // Convert lamports to SOL
+        } catch (error) {
+            console.error('Error checking wallet balance:', error);
+            throw new Error('Failed to check wallet balance');
+        }
+    }
+
+    // Show Phantom import modal when extension is not available
+    function showPhantomImportModal() {
+        const modal = document.createElement('div');
+        modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+        modal.innerHTML = `
+            <div class="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold text-white">Import Phantom Wallet</h3>
+                    <button class="text-gray-400 hover:text-white" onclick="this.closest('.fixed').remove()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <p class="text-gray-300 mb-4">Import an existing wallet with your 12 or 24-word recovery phrase.</p>
+                <div class="grid grid-cols-4 gap-2 mb-4">
+                    ${Array.from({length: 12}, (_, i) => `
+                        <div class="flex items-center">
+                            <span class="text-gray-400 text-xs mr-1">${i + 1}.</span>
+                            <input type="text" class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm" 
+                                   placeholder="word" data-word="${i}">
+                        </div>
+                    `).join('')}
+                </div>
+                <div class="flex items-center mb-4">
+                    <input type="checkbox" id="has24Words" class="mr-2">
+                    <label for="has24Words" class="text-gray-300 text-sm">I have a 24-word recovery phrase</label>
+                </div>
+                <button class="w-full bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded text-white transition-colors" 
+                        onclick="importPhantomWallet(this)">
+                    Import Wallet
+                </button>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    // Import Phantom wallet function
+    async function importPhantomWallet(button) {
+        try {
+            button.disabled = true;
+            button.textContent = 'Importing...';
+            
+            const wordInputs = document.querySelectorAll('[data-word]');
+            const words = Array.from(wordInputs).map(input => input.value.trim()).filter(word => word);
+            
+            if (words.length !== 12 && words.length !== 24) {
+                throw new Error('Please enter 12 or 24 recovery words');
+            }
+            
+            // Here you would typically use a library like @solana/web3.js to derive the keypair
+            // For now, we'll simulate the import process
+            showNotification('Wallet import feature requires additional setup. Please install Phantom extension for now.', 'warning');
+            
+            // Close modal
+            button.closest('.fixed').remove();
+            
+        } catch (error) {
+            showNotification(error.message, 'error');
+            button.disabled = false;
+            button.textContent = 'Import Wallet';
+        }
+    }
+
+    // Update wallet UI
+    function updateWalletUI(walletAddress, walletType, balance = null) {
+        const notConnected = document.getElementById('wallet-not-connected');
+        const connected = document.getElementById('wallet-connected');
+        const walletAddressElement = document.getElementById('wallet-address');
+        const walletTypeElement = document.getElementById('wallet-type');
+        const walletBalanceElement = document.getElementById('wallet-balance');
+
+        if (notConnected) notConnected.classList.add('hidden');
+        if (connected) connected.classList.remove('hidden');
+        if (walletAddressElement) {
+            walletAddressElement.textContent = walletAddress.substring(0, 8) + '...' + walletAddress.substring(walletAddress.length - 8);
+        }
+        if (walletTypeElement) {
+            walletTypeElement.textContent = `${walletType.charAt(0).toUpperCase() + walletType.slice(1)} Wallet`;
+        }
+        if (walletBalanceElement && balance !== null) {
+            walletBalanceElement.textContent = `${balance.toFixed(4)} SOL`;
+        }
+    }
+
+    // Disconnect wallet
+    async function disconnectWallet() {
+        try {
+            if (currentWallet && currentWallet.provider) {
+                await currentWallet.provider.disconnect();
+            }
+
+            // Send disconnect to backend
+            await fetch('/api/disconnect-wallet', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            walletConnected = false;
+            currentWallet = null;
+
+            // Update UI
+            const notConnected = document.getElementById('wallet-not-connected');
+            const connected = document.getElementById('wallet-connected');
+
+            if (notConnected) notConnected.classList.remove('hidden');
+            if (connected) connected.classList.add('hidden');
+
+            // Disable launch buttons
+            elements.launchButtons.forEach(btn => {
+                btn.disabled = true;
+                btn.classList.add('opacity-50');
+            });
+
+            showNotification('Wallet disconnected successfully!', 'info');
+        } catch (error) {
+            console.error('Error disconnecting wallet:', error);
+            showNotification('Error disconnecting wallet', 'error');
+        }
+    }
+
+    // Tab switching
     function switchTab(tabName) {
-        // Update navigation
+        // Update navigation buttons
         elements.navTabs.forEach(tab => {
-            tab.classList.remove('active', 'border-green-400', 'text-green-400');
-            tab.classList.add('border-transparent');
+            tab.classList.remove('active', 'bg-blue-600', 'text-white');
+            tab.classList.add('bg-gray-700', 'text-gray-300');
         });
-
+        
         const activeTab = document.querySelector(`[data-tab="${tabName}"]`);
-        activeTab.classList.add('active', 'border-green-400', 'text-green-400');
-        activeTab.classList.remove('border-transparent');
+        if (activeTab) {
+            activeTab.classList.add('active', 'bg-blue-600', 'text-white');
+            activeTab.classList.remove('bg-gray-700', 'text-gray-300');
+        }
 
-        // Update content
+        // Hide all tab contents
         elements.tabContents.forEach(content => {
             content.classList.add('hidden');
         });
 
-        const activeContent = document.getElementById(`${tabName}-tab`);
-        activeContent.classList.remove('hidden');
+        // Show selected tab content
+        const selectedContent = document.getElementById(`${tabName}-tab`);
+        if (selectedContent) {
+            selectedContent.classList.remove('hidden');
+        }
 
-        currentTab = tabName;
+        // Load tab-specific data
+        if (tabName === 'overview') {
+            loadOverviewData();
+        } else if (tabName === 'trading') {
+            loadTradingData();
+        } else if (tabName === 'settings') {
+            loadSettings();
+        } else if (tabName === 'logs') {
+            loadLogs();
+        }
     }
 
-    // --- Bot State Management ---
+    // Reset bot state
     function resetBotState() {
-        tradingData = [];
-        tradingActive = false;
-        if (tradingInterval) {
-            clearInterval(tradingInterval);
-            tradingInterval = null;
+        botRunning = false;
+        if (elements.botStatus) {
+            elements.botStatus.textContent = 'Stopped';
+            elements.botStatus.className = 'text-2xl font-bold text-red-400';
         }
-        // Reset status boxes
-        const statusElement = document.querySelector('.bg-green-600, .bg-red-600');
-        if (statusElement) {
-            statusElement.textContent = 'Working...';
-            statusElement.classList.remove('bg-red-600');
-            statusElement.classList.add('bg-green-600');
-        }
-        const sidebarStatus = document.querySelectorAll('.sidebar-status');
-        sidebarStatus.forEach(el => {
-            el.textContent = 'Working...';
-            el.classList.remove('bg-red-600');
-            el.classList.add('bg-green-600');
+        
+        elements.launchButtons.forEach(btn => {
+            btn.disabled = false;
+            btn.classList.remove('opacity-50');
         });
-        // Clear trading table
-        updateTradingTable();
-        // Reset Bought/Sold counter
-        const boughtSoldEls = document.querySelectorAll('.bought-sold-counter');
-        boughtSoldEls.forEach(el => {
-            el.textContent = `0/${rowsLimit}`;
-        });
-        // Clear error messages
-        const feedback = document.getElementById('bot-config-feedback');
-        if (feedback) feedback.textContent = '';
     }
 
-    // --- Launch trading bot ---
-    async function launchTradingBot() {
+    // License validation
+    async function validateLicense() {
+        const licenseKey = document.getElementById('licenseKey').value.trim();
+        
+        if (!licenseKey) {
+            showNotification('Please enter a license key', 'error');
+            return false;
+        }
+
         try {
-            // Start trading bot without wallet requirement
-            const response = await fetch('/api/start', {
+            const response = await fetch('/api/validate-license', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ parameters: collectConfigValues() })
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ licenseKey })
             });
-            
+
             const result = await response.json();
             
-            if (result.started) {
-                resetBotState();
-                tradingActive = true;
-                
-                // Show trading initialization modal
-                elements.tradingModal.classList.remove('hidden');
-                setTimeout(() => {
-                    elements.tradingModal.classList.add('hidden');
-                    elements.dashboardModal.classList.remove('hidden');
-                    // Start generating trading data
-                    startTradingSimulation();
-                    // Set status to Working...
-                    const statusElement = document.querySelector('.bg-green-600, .bg-red-600');
-                    if (statusElement) {
-                        statusElement.textContent = 'Working...';
-                        statusElement.classList.remove('bg-red-600');
-                        statusElement.classList.add('bg-green-600');
-                    }
-                    const sidebarStatus = document.querySelectorAll('.sidebar-status');
-                    sidebarStatus.forEach(el => {
-                        el.textContent = 'Working...';
-                        el.classList.remove('bg-red-600');
-                        el.classList.add('bg-green-600');
-                    });
-                }, 1500);
-                
-                showNotification('Trading bot launched successfully! Connect your wallet to receive profits.', 'success');
+            if (result.valid) {
+                return true;
             } else {
-                showNotification('Failed to launch bot: ' + (result.error || 'Unknown error'), 'error');
+                showNotification(result.error || 'Invalid license key', 'error');
+                return false;
             }
         } catch (error) {
-            showNotification('Error launching bot: ' + error.message, 'error');
+            console.error('License validation error:', error);
+            showNotification('Error validating license', 'error');
+            return false;
         }
     }
 
-    // Show wallet connection modal (from dashboard)
-    function showWalletModal() {
-        elements.dashboardModal.classList.add('hidden');
-        elements.walletModal.classList.remove('hidden');
-    }
+    // Login with license
+    async function loginWithLicense() {
+        const isValid = await validateLicense();
+        
+        if (isValid) {
+            const licenseKey = document.getElementById('licenseKey').value.trim();
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ licenseKey })
+                });
 
-    // Hide wallet connection modal
-    function hideWalletModal() {
-        elements.walletModal.classList.add('hidden');
-        // If trading is active, return to dashboard
-        if (tradingActive) {
-            elements.dashboardModal.classList.remove('hidden');
-        }
-    }
-
-    // Connect wallet (real wallet extension integration for Phantom)
-    async function connectWallet(walletType) {
-        if (walletType === 'phantom') {
-            // Check if Phantom wallet is installed
-            if (window.solana && window.solana.isPhantom) {
-                try {
-                    console.log('Phantom wallet detected, attempting connection...');
+                const result = await response.json();
+                
+                if (result.success) {
+                    userToken = result.token;
+                    localStorage.setItem('userToken', userToken);
                     
-                    // Request connection to Phantom wallet
-                    const resp = await window.solana.connect();
-                    console.log('Wallet connected:', resp);
+                    updateLoginStatus(true, result.user);
+                    showNotification('Login successful!', 'success');
                     
-                    // Get wallet address
-                    const walletAddress = resp.publicKey.toString();
-                    
-                    // Send wallet info to backend
-                    try {
-                        const response = await fetch('/api/connect-wallet', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                walletType: 'phantom',
-                                publicKey: walletAddress
-                            })
+                    // Enable launch button if wallet is also connected
+                    if (walletConnected) {
+                        elements.launchButtons.forEach(btn => {
+                            btn.disabled = false;
+                            btn.classList.remove('opacity-50');
                         });
-                        
-                        const result = await response.json();
-                        
-                        if (result.success) {
-                            // Update UI
-                    walletConnected = true;
-                    elements.connectWalletBtn.textContent = 'Connected';
-                    elements.connectWalletBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
-                    elements.connectWalletBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
-                            
-                            // Display wallet address
-                            document.getElementById('wallet-address').textContent = walletAddress;
-                            
-                            // Fetch and display balance
-                            try {
-                                const connection = new solanaWeb3.Connection('https://api.mainnet-beta.solana.com');
-                    const balance = await connection.getBalance(resp.publicKey);
-                                const solBalance = (balance / 1e9).toFixed(4);
-                                document.getElementById('wallet-balance').textContent = solBalance + ' SOL';
-                                console.log('Balance fetched:', solBalance, 'SOL');
-                            } catch (balanceError) {
-                                console.error('Error fetching balance:', balanceError);
-                                document.getElementById('wallet-balance').textContent = 'Balance unavailable';
-                            }
-                            
-                            // Update trading table
-                    updateTradingTableWithWallet();
-                            
-                            // Check for available profits
-                            await checkAndDisplayProfits();
-                            
-                            // Show success message
-                            showNotification('Phantom wallet connected successfully!', 'success');
-                            
-                            console.log('Wallet connected to backend:', result);
-                        } else {
-                            throw new Error(result.error || 'Failed to connect wallet to backend');
-                        }
-                    } catch (backendError) {
-                        console.error('Backend connection error:', backendError);
-                        showNotification('Failed to connect wallet to backend: ' + backendError.message, 'error');
                     }
-                    
-                } catch (err) {
-                    console.error('Wallet connection failed:', err);
-                    showNotification('Wallet connection failed: ' + err.message, 'error');
+                } else {
+                    showNotification(result.error || 'Login failed', 'error');
                 }
-            } else {
-                console.log('Phantom wallet not found');
-                showNotification('Phantom Wallet not found. Please install the Phantom extension from https://phantom.app/', 'error');
-                
-                // Open Phantom installation page
-                setTimeout(() => {
-                    if (confirm('Would you like to install Phantom Wallet?')) {
-                        window.open('https://phantom.app/', '_blank');
-                    }
-                }, 1000);
+            } catch (error) {
+                console.error('Login error:', error);
+                showNotification('Error during login', 'error');
             }
-        } else {
-            showNotification(`Connecting to ${walletType} wallet... (integration coming soon)`, 'info');
         }
-        hideWalletModal();
     }
 
-    // Check and display available profits
-    async function checkAndDisplayProfits() {
-        try {
-            const response = await fetch('/api/connected-wallet');
-            const walletInfo = await response.json();
-            
-            if (walletInfo.connected && walletInfo.profit > 0) {
-                // Show profit notification
-                showNotification(`You have ${walletInfo.profit.toFixed(4)} SOL in profits! Click to withdraw.`, 'success');
-                
-                // Add withdraw button to dashboard
-                addWithdrawButton(walletInfo.profit);
-            }
-        } catch (error) {
-            console.error('Error checking profits:', error);
-        }
-    }
-    
-    // Add withdraw button to dashboard
-    function addWithdrawButton(profit) {
-        // Remove existing withdraw button if any
-        const existingBtn = document.getElementById('withdraw-profits-btn');
-        if (existingBtn) {
-            existingBtn.remove();
-        }
+    // Show login modal
+    function showLoginModal() {
+        console.log('Showing login modal...');
         
-        // Create withdraw button
-        const withdrawBtn = document.createElement('button');
-        withdrawBtn.id = 'withdraw-profits-btn';
-        withdrawBtn.className = 'bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded ml-2';
-        withdrawBtn.textContent = `Withdraw ${profit.toFixed(4)} SOL`;
-        withdrawBtn.onclick = withdrawProfits;
-        
-        // Add to dashboard
-        const dashboardHeader = document.querySelector('.dashboard-header');
-        if (dashboardHeader) {
-            dashboardHeader.appendChild(withdrawBtn);
+        // Add visual feedback to login icon
+        const loginIcon = document.getElementById('loginIcon');
+        if (loginIcon) {
+            loginIcon.classList.add('animate-pulse', 'glow');
+            setTimeout(() => {
+                loginIcon.classList.remove('animate-pulse', 'glow');
+            }, 1000);
         }
+
+        // Focus on license key input
+        const licenseInput = document.getElementById('licenseKey');
+        if (licenseInput) {
+            licenseInput.focus();
+            licenseInput.classList.add('ring-2', 'ring-green-400');
+            setTimeout(() => {
+                licenseInput.classList.remove('ring-2', 'ring-green-400');
+            }, 2000);
+        }
+
+        showNotification('Please enter your license key to access the trading bot', 'info');
     }
-    
-    // Withdraw profits function
-    async function withdrawProfits() {
-        try {
-            const response = await fetch('/api/distribute-profits', {
+
+    // Handle logout
+    function handleLogout() {
+        userToken = null;
+        localStorage.removeItem('userToken');
+        updateLoginStatus(false);
+        
+        // Disable launch buttons
+        elements.launchButtons.forEach(btn => {
+            btn.disabled = true;
+            btn.classList.add('opacity-50');
+        });
+        
+        showNotification('Logged out successfully', 'info');
+    }
+
+    // Check login status
+    function checkLoginStatus() {
+        const token = localStorage.getItem('userToken');
+        if (token) {
+            userToken = token;
+            // Verify token with backend
+            fetch('/api/verify-token', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ token })
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.valid) {
+                    updateLoginStatus(true, result.user);
+                } else {
+                    handleLogout();
+                }
+            })
+            .catch(() => {
+                handleLogout();
             });
+        } else {
+            updateLoginStatus(false);
+        }
+    }
+
+    // Update login status UI
+    function updateLoginStatus(isLoggedIn, user = null) {
+        const userStatus = document.getElementById('userStatus');
+        const userInfo = document.getElementById('userInfo');
+        const loginIcon = document.getElementById('loginIcon');
+        const tradingDashboard = document.getElementById('trading-dashboard');
+
+        if (isLoggedIn && user) {
+            if (userStatus) userStatus.classList.remove('hidden');
+            if (userInfo) userInfo.textContent = `Welcome, ${user.username}`;
+            if (loginIcon) loginIcon.classList.add('hidden');
+            if (tradingDashboard) tradingDashboard.classList.remove('hidden');
+        } else {
+            if (userStatus) userStatus.classList.add('hidden');
+            if (loginIcon) loginIcon.classList.remove('hidden');
+            if (tradingDashboard) tradingDashboard.classList.add('hidden');
+        }
+    }
+
+    // Launch trading bot
+    async function launchTradingBot() {
+        if (!userToken) {
+            showNotification('Please login first', 'error');
+            return;
+        }
+
+        if (!walletConnected) {
+            showNotification('Please connect your wallet first', 'error');
+            return;
+        }
+
+        try {
+            showLoadingOverlay();
             
+            const response = await fetch('/api/launch-bot', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${userToken}`
+                },
+                body: JSON.stringify({
+                    walletAddress: currentWallet.address,
+                    settings: settings
+                })
+            });
+
             const result = await response.json();
             
             if (result.success) {
-                showNotification(`Successfully withdrew ${result.amount.toFixed(4)} SOL to your wallet!`, 'success');
-                
-                // Remove withdraw button
-                const withdrawBtn = document.getElementById('withdraw-profits-btn');
-                if (withdrawBtn) {
-                    withdrawBtn.remove();
+                botRunning = true;
+                if (elements.botStatus) {
+                    elements.botStatus.textContent = 'Running';
+                    elements.botStatus.className = 'text-2xl font-bold text-green-400';
                 }
+                
+                elements.launchButtons.forEach(btn => {
+                    btn.disabled = true;
+                    btn.classList.add('opacity-50');
+                });
+                
+                showNotification('Trading bot launched successfully!', 'success');
             } else {
-                showNotification('Failed to withdraw profits: ' + result.message, 'error');
+                showNotification(result.error || 'Failed to launch bot', 'error');
             }
         } catch (error) {
-            showNotification('Error withdrawing profits: ' + error.message, 'error');
+            console.error('Launch bot error:', error);
+            showNotification('Error launching bot', 'error');
+        } finally {
+            hideLoadingOverlay();
+        }
+    }
+
+    // Show wallet modal
+    function showWalletModal() {
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50';
+        modal.innerHTML = `
+            <div class="card-bg rounded-lg p-6 w-full max-w-md mx-4">
+                <h3 class="text-xl font-bold mb-4 text-blue-400">Connect Wallet</h3>
+                <p class="text-gray-300 mb-4">Choose your Solana wallet to connect:</p>
+                <div class="space-y-3">
+                    <button onclick="connectWallet('phantom')" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded transition-colors">
+                        <i class="fas fa-ghost mr-2"></i>Phantom
+                    </button>
+                    <button onclick="connectWallet('solflare')" class="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-4 rounded transition-colors">
+                        <i class="fas fa-fire mr-2"></i>Solflare
+                    </button>
+                    <button onclick="connectWallet('backpack')" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded transition-colors">
+                        <i class="fas fa-briefcase mr-2"></i>Backpack
+                    </button>
+                </div>
+                <button onclick="hideWalletModal()" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded mt-4 transition-colors">
+                    Cancel
+                </button>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    // Hide wallet modal
+    function hideWalletModal() {
+        const modal = document.querySelector('.modal-overlay');
+        if (modal) {
+            modal.remove();
+        }
+    }
+
+    // Check and display profits
+    async function checkAndDisplayProfits() {
+        if (!userToken) return;
+
+        try {
+            const response = await fetch('/api/trading-stats', {
+                headers: {
+                    'Authorization': `Bearer ${userToken}`
+                }
+            });
+
+            const stats = await response.json();
+            
+            if (stats.totalProfit > 0) {
+                addWithdrawButton(stats.totalProfit);
+            }
+        } catch (error) {
+            console.error('Error fetching trading stats:', error);
+        }
+    }
+
+    // Add withdraw button
+    function addWithdrawButton(profit) {
+        const existingButton = document.getElementById('withdraw-btn');
+        if (existingButton) return;
+
+        const button = document.createElement('button');
+        button.id = 'withdraw-btn';
+        button.className = 'bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition-colors';
+        button.innerHTML = `<i class="fas fa-download mr-2"></i>Withdraw ${profit.toFixed(4)} SOL`;
+        button.onclick = withdrawProfits;
+
+        const quickActions = document.querySelector('.card-bg .flex.flex-wrap.gap-4');
+        if (quickActions) {
+            quickActions.appendChild(button);
+        }
+    }
+
+    // Withdraw profits
+    async function withdrawProfits() {
+        if (!userToken) return;
+
+        try {
+            const response = await fetch('/api/withdraw-profits', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${userToken}`
+                }
+            });
+
+            const result = await response.json();
+            
+            if (result.success) {
+                showNotification(`Successfully withdrew ${result.amount} SOL!`, 'success');
+                const button = document.getElementById('withdraw-btn');
+                if (button) button.remove();
+            } else {
+                showNotification(result.error || 'Withdrawal failed', 'error');
+            }
+        } catch (error) {
+            console.error('Withdrawal error:', error);
+            showNotification('Error processing withdrawal', 'error');
         }
     }
 
     // Toggle address visibility
     function toggleAddressVisibility() {
         const addressElement = document.getElementById('wallet-address');
-        const showButton = document.getElementById('show-address');
-        
-        if (addressElement.textContent === '******') {
-            addressElement.textContent = '8bXf8Rg3u4Prz71LgKR5mpa7aMe2F4cSKYYRctmqro6x';
-            showButton.textContent = '[Hide]';
-        } else {
-            addressElement.textContent = '******';
-            showButton.textContent = '[Show]';
+        if (addressElement) {
+            if (addressElement.textContent.includes('...')) {
+                addressElement.textContent = currentWallet.address;
+            } else {
+                addressElement.textContent = currentWallet.address.substring(0, 8) + '...' + currentWallet.address.substring(currentWallet.address.length - 8);
+            }
         }
     }
 
     // Show notification
     function showNotification(message, type = 'info') {
-        // Create notification element
         const notification = document.createElement('div');
-        notification.className = `fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm transform transition-all duration-300 translate-x-full`;
+        notification.className = `p-4 rounded-lg shadow-lg transform transition-all duration-300 translate-x-full`;
         
-        // Set colors based on type
-        switch(type) {
-            case 'success':
-                notification.className += ' bg-green-600 text-white';
-                break;
-            case 'error':
-                notification.className += ' bg-red-600 text-white';
-                break;
-            case 'warning':
-                notification.className += ' bg-yellow-600 text-white';
-                break;
-            default:
-                notification.className += ' bg-blue-600 text-white';
-        }
+        const colors = {
+            success: 'bg-green-600',
+            error: 'bg-red-600',
+            warning: 'bg-yellow-600',
+            info: 'bg-blue-600'
+        };
         
+        notification.className += ` ${colors[type] || colors.info}`;
         notification.innerHTML = `
             <div class="flex items-center">
-                <span class="mr-2">${type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️'}</span>
+                <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'} mr-2"></i>
                 <span>${message}</span>
             </div>
         `;
         
-        document.body.appendChild(notification);
+        elements.notificationContainer.appendChild(notification);
         
         // Animate in
         setTimeout(() => {
             notification.classList.remove('translate-x-full');
         }, 100);
         
-        // Auto remove after 5 seconds
+        // Auto remove
         setTimeout(() => {
             notification.classList.add('translate-x-full');
             setTimeout(() => {
@@ -445,424 +902,496 @@
 
     // Hide all modals
     function hideAllModals() {
-        elements.tradingModal.classList.add('hidden');
-        elements.walletModal.classList.add('hidden');
-        elements.dashboardModal.classList.add('hidden');
+        const modals = document.querySelectorAll('.modal-overlay');
+        modals.forEach(modal => modal.remove());
     }
 
     // Update system metrics
     function updateSystemMetrics() {
-        if (!tradingActive) return;
-
-        // Simulate changing metrics
-        const cpu = (Math.random() * 30 + 40).toFixed(1);
-        const memory = Math.floor(Math.random() * 50 + 150);
-        const latency = (Math.random() * 5 + 8).toFixed(1);
-        const buyTime = `${(Math.random() * 0.1).toFixed(2)}s - ${(Math.random() * 0.1).toFixed(2)}s`;
-
-        document.getElementById('cpu-usage').textContent = `${cpu}%`;
-        document.getElementById('memory-usage').textContent = `${memory}MB`;
-        document.getElementById('network-latency').textContent = `${latency}ms`;
-        document.getElementById('buy-time').textContent = buyTime;
+        setInterval(() => {
+            if (elements.totalProfit) {
+                elements.totalProfit.textContent = (Math.random() * 2).toFixed(4) + ' SOL';
+            }
+            if (elements.tradesToday) {
+                elements.tradesToday.textContent = Math.floor(Math.random() * 50);
+            }
+            if (elements.successRate) {
+                elements.successRate.textContent = (Math.random() * 100).toFixed(1) + '%';
+            }
+        }, 10000);
     }
 
-    // --- Trading Data Generation ---
+    // Generate trading data
     function generateTradingData() {
-        const baseTime = new Date();
-        tradingData = [];
-        for (let i = 0; i < Math.min(6, rowsLimit); i++) {
-            const time = new Date(baseTime.getTime() - (i * 5000));
-            tradingData.push({
-                name: 'Connect Wallet (Connect Wallet)',
-                symbol: 'token...oken',
-                address: '8bXf8Rg3u4Prz71LgKR5mpa7aMe2F4cSKYYRctmqro6x',
-                launch: time.toLocaleTimeString(),
-                speed: (Math.random() * 0.1).toFixed(2),
-                status: 'PLEASE CONNECT'
-            });
-        }
-        updateTradingTable();
-    }
-
-    function updateTradingData() {
-        if (!tradingActive) return;
-        // Add new trading entry
-        const newEntry = {
-            name: walletConnected ? 'New Token (NEW)' : 'Connect Wallet (Connect Wallet)',
-            symbol: walletConnected ? 'new...token' : 'token...oken',
-            address: '8bXf8Rg3u4Prz71LgKR5mpa7aMe2F4cSKYYRctmqro6x',
-            launch: new Date().toLocaleTimeString(),
-            speed: (Math.random() * 0.1).toFixed(2),
-            status: walletConnected ? 'BUYING...' : 'PLEASE CONNECT'
-        };
-        tradingData.unshift(newEntry);
-        // Keep only up to rowsLimit entries
-        if (tradingData.length > rowsLimit) {
-            tradingData = tradingData.slice(0, rowsLimit);
-        }
-        updateTradingTable();
-    }
-
-    // Update trading table with wallet connected
-    function updateTradingTableWithWallet() {
-        tradingData.forEach(entry => {
-            entry.name = 'New Token (NEW)';
-            entry.symbol = 'new...token';
-            entry.status = 'BUYING...';
-        });
-        updateTradingTable();
-    }
-
-    // Update trading table display
-    function updateTradingTable() {
-        if (!elements.tradingTableBody) return;
-
-        elements.tradingTableBody.innerHTML = tradingData.map(entry => `
-            <tr class="border-b border-gray-700">
-                <td class="py-2 px-2">
-                    <div>${entry.name}</div>
-                    <div class="text-xs text-gray-400">${entry.symbol}</div>
-                </td>
-                <td class="py-2 px-2">${entry.launch}</td>
-                <td class="py-2 px-2">
-                    Seen (${entry.speed}s): ${walletConnected ? 'BUYING' : 'PLEASE CONNECT'}
-                </td>
-                <td class="py-2 px-2">
-                    <div class="flex items-center">
-                        <div class="w-3 h-3 rounded-full ${walletConnected ? 'bg-green-400' : 'bg-red-400'} mr-2"></div>
-                        ${entry.status}
-                    </div>
-                </td>
-            </tr>
-        `).join('');
-
-        // Update Bought/Sold counter
-        const boughtSoldEls = document.querySelectorAll('.bought-sold-counter');
-        boughtSoldEls.forEach(el => {
-            el.textContent = `${tradingData.length}/${rowsLimit}`;
-        });
-    }
-
-    // --- Trading Simulation ---
-    function startTradingSimulation() {
-        // Start with empty trading data
-        tradingData = [];
-        updateTradingTable();
-        if (tradingInterval) clearInterval(tradingInterval);
-        tradingInterval = setInterval(() => {
-            if (!tradingActive) return;
-            if (tradingData.length >= rowsLimit) {
-                stopTradingBot();
-                return;
-            }
-            updateTradingData();
-        }, 3000);
-    }
-
-    // Socket.io event handlers
-    socket.on('connect', () => {
-        console.log('Connected to server');
-    });
-
-    socket.on('disconnect', () => {
-        console.log('Disconnected from server');
-    });
-
-    socket.on('log', (message) => {
-        console.log('Log message:', message);
-        // You can add log display functionality here
-    });
-
-    // Prices tab: Buy modal logic
-    function setupBuyModal() {
-        // Delegate event for buy buttons
-        document.body.addEventListener('click', function(e) {
-            if (e.target.classList.contains('buy-btn')) {
-                const pkg = e.target.getAttribute('data-package') || '';
-                document.getElementById('selected-package').textContent = pkg;
-                document.getElementById('buy-modal').classList.remove('hidden');
-            }
-            if (e.target.id === 'close-buy-modal') {
-                document.getElementById('buy-modal').classList.add('hidden');
-            }
-        });
-    }
-
-    // Helper: Collect config values from a given form prefix
-    function collectConfigValues(prefix = '') {
+        const tokens = ['SOL', 'BONK', 'SAMO', 'RAY', 'SRM'];
+        const actions = ['BUY', 'SELL'];
+        const token = tokens[Math.floor(Math.random() * tokens.length)];
+        const action = actions[Math.floor(Math.random() * actions.length)];
+        const amount = (Math.random() * 0.5).toFixed(4);
+        const price = (Math.random() * 100).toFixed(6);
+        
         return {
-            executor: document.getElementById(`config-executor${prefix}`).value,
-            speed: document.getElementById(`config-speed${prefix}`).value,
-            buyMin: parseFloat(document.getElementById(`config-buy-min${prefix}`).value),
-            buyMax: parseFloat(document.getElementById(`config-buy-max${prefix}`).value),
-            intervalMin: parseFloat(document.getElementById(`config-interval-min${prefix}`).value),
-            intervalMax: parseFloat(document.getElementById(`config-interval-max${prefix}`).value),
-            slippage: parseFloat(document.getElementById(`config-slippage${prefix}`).value),
-            devAllocation: parseInt(document.getElementById(`config-dev-allocation${prefix}`).value),
-            takeProfit: parseInt(document.getElementById(`config-take-profit${prefix}`).value),
-            stopLoss: parseInt(document.getElementById(`config-stop-loss${prefix}`).value),
-            autoSell: document.getElementById(`config-auto-sell${prefix}`).checked,
-            // Advanced Safety Settings
-            top10HoldersMax: parseInt(document.getElementById(`config-top10-holders${prefix}`)?.value || 50),
-            bundledMax: parseInt(document.getElementById(`config-bundled-max${prefix}`)?.value || 20),
-            maxSameBlockBuys: parseInt(document.getElementById(`config-same-block-buys${prefix}`)?.value || 3),
-            safetyCheckPeriod: parseInt(document.getElementById(`config-safety-check-period${prefix}`)?.value || 30),
-            requireSocials: document.getElementById(`config-require-socials${prefix}`)?.checked || true,
-            requireLiquidityBurnt: document.getElementById(`config-require-liquidity-burnt${prefix}`)?.checked || true,
-            requireImmutableMetadata: document.getElementById(`config-require-immutable-metadata${prefix}`)?.checked || true,
-            requireMintAuthorityRenounced: document.getElementById(`config-require-mint-authority-renounced${prefix}`)?.checked || true,
-            requireFreezeAuthorityRenounced: document.getElementById(`config-require-freeze-authority-renounced${prefix}`)?.checked || true,
-            onlyPumpFunMigrated: document.getElementById(`config-only-pump-fun-migrated${prefix}`)?.checked || true,
-            minPoolSize: parseInt(document.getElementById(`config-min-pool-size${prefix}`)?.value || 5000)
+            token,
+            action,
+            amount,
+            price,
+            timestamp: new Date().toLocaleTimeString()
         };
     }
 
-    // Setup safety settings sliders
+    // Update trading data
+    function updateTradingData() {
+        const recentTrades = document.getElementById('recent-trades');
+        if (!recentTrades) return;
+
+        const trade = generateTradingData();
+        const tradeElement = document.createElement('div');
+        tradeElement.className = 'flex justify-between items-center p-3 bg-gray-800/50 rounded-lg';
+        tradeElement.innerHTML = `
+            <div class="flex items-center space-x-3">
+                <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+                    <i class="fas fa-${trade.action === 'BUY' ? 'arrow-up' : 'arrow-down'} text-white text-xs"></i>
+                </div>
+                <div>
+                    <p class="font-semibold">${trade.token}</p>
+                    <p class="text-sm text-gray-400">${trade.action} ${trade.amount} SOL</p>
+                </div>
+            </div>
+            <div class="text-right">
+                <p class="font-semibold">$${trade.price}</p>
+                <p class="text-sm text-gray-400">${trade.timestamp}</p>
+            </div>
+        `;
+
+        recentTrades.insertBefore(tradeElement, recentTrades.firstChild);
+        
+        if (recentTrades.children.length > 5) {
+            recentTrades.removeChild(recentTrades.lastChild);
+        }
+    }
+
+    // Update trading table with wallet
+    function updateTradingTableWithWallet() {
+        if (currentWallet) {
+            updateTradingTable();
+        }
+    }
+
+    // Update trading table
+    function updateTradingTable() {
+        const tableBody = document.querySelector('#trading-table tbody');
+        if (!tableBody) return;
+
+        const newRow = document.createElement('tr');
+        newRow.className = 'hover:bg-gray-700';
+        
+        const trade = generateTradingData();
+        newRow.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
+                        <i class="fas fa-${trade.action === 'BUY' ? 'arrow-up' : 'arrow-down'} text-white text-xs"></i>
+                    </div>
+                    <div>
+                        <div class="text-sm font-medium text-white">${trade.token}</div>
+                        <div class="text-sm text-gray-400">${currentWallet.address.substring(0, 8)}...</div>
+                    </div>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${trade.action === 'BUY' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                    ${trade.action}
+                </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${trade.amount} SOL</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">$${trade.price}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${trade.timestamp}</td>
+        `;
+
+        tableBody.insertBefore(newRow, tableBody.firstChild);
+        
+        if (tableBody.children.length > 10) {
+            tableBody.removeChild(tableBody.lastChild);
+        }
+    }
+
+    // Start trading simulation
+    function startTradingSimulation() {
+        setInterval(() => {
+            if (botRunning) {
+                updateTradingData();
+                updateTradingTableWithWallet();
+            }
+        }, 5000);
+    }
+
+    // Setup buy modal
+    function setupBuyModal() {
+        const buyModal = document.createElement('div');
+        buyModal.id = 'buy-modal';
+        buyModal.className = 'modal-overlay fixed inset-0 flex items-center justify-center z-50 hidden';
+        buyModal.innerHTML = `
+            <div class="card-bg rounded-lg p-6 w-full max-w-md mx-4">
+                <h3 class="text-xl font-bold mb-4 text-blue-400">Buy Configuration</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-semibold mb-2 text-gray-300">Buy Amount (SOL)</label>
+                        <input type="number" id="buy-amount" step="0.01" min="0.01" max="10" value="0.1" 
+                               class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-2 text-gray-300">Slippage (%)</label>
+                        <input type="number" id="slippage" min="1" max="50" value="5" 
+                               class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                    </div>
+                </div>
+                <div class="flex space-x-3 mt-6">
+                    <button onclick="executeBuy()" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition-colors">
+                        Execute Buy
+                    </button>
+                    <button onclick="hideBuyModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition-colors">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(buyModal);
+    }
+
+    // Collect config values
+    function collectConfigValues(prefix = '') {
+        const config = {};
+        const elements = [
+            'buy-mode', 'fixed-buy-amount', 'min-buy-amount', 'max-buy-amount',
+            'profit-target-1', 'profit-target-2', 'stop-loss', 'min-liquidity',
+            'top-10-holders', 'bundled-max', 'max-same-block', 'safety-check-period',
+            'min-pool-size', 'require-socials', 'require-liquidity-burnt',
+            'require-immutable-metadata', 'require-mint-authority-renounced',
+            'require-freeze-authority-renounced', 'only-pump-fun-migrated'
+        ];
+
+        elements.forEach(id => {
+            const element = document.getElementById(prefix + id);
+            if (element) {
+                if (element.type === 'checkbox') {
+                    config[id] = element.checked;
+                } else if (element.type === 'range') {
+                    config[id] = parseFloat(element.value);
+                } else {
+                    config[id] = element.value;
+                }
+            }
+        });
+
+        return config;
+    }
+
+    // Setup safety sliders
     function setupSafetySliders() {
         const sliders = [
-            { id: 'config-top10-holders', valueId: 'top10-value' },
-            { id: 'config-bundled-max', valueId: 'bundled-value' },
-            { id: 'config-same-block-buys', valueId: 'same-block-value' },
-            { id: 'config-safety-check-period', valueId: 'safety-check-value' },
-            { id: 'config-min-pool-size', valueId: 'pool-size-value' }
+            { id: 'top-10-holders', valueId: 'top-10-holders-value' },
+            { id: 'bundled-max', valueId: 'bundled-max-value' },
+            { id: 'max-same-block', valueId: 'max-same-block-value' },
+            { id: 'safety-check-period', valueId: 'safety-check-period-value' },
+            { id: 'min-pool-size', valueId: 'min-pool-size-value' }
         ];
 
-        sliders.forEach(({ id, valueId }) => {
-            const slider = document.getElementById(id);
-            const valueDisplay = document.getElementById(valueId);
+        sliders.forEach(slider => {
+            const sliderElement = document.getElementById(slider.id);
+            const valueElement = document.getElementById(slider.valueId);
             
-            if (slider && valueDisplay) {
-                // Update display on load
-                valueDisplay.textContent = slider.value;
-                
-                // Update display on change
-                slider.addEventListener('input', (e) => {
-                    valueDisplay.textContent = e.target.value;
-                });
-            }
-        });
-    }
-
-    // Setup safety settings checkboxes
-    function setupSafetyCheckboxes() {
-        const checkboxes = [
-            'config-require-socials',
-            'config-require-liquidity-burnt',
-            'config-require-immutable-metadata',
-            'config-require-mint-authority-renounced',
-            'config-require-freeze-authority-renounced',
-            'config-only-pump-fun-migrated'
-        ];
-
-        checkboxes.forEach(id => {
-            const checkbox = document.getElementById(id);
-            if (checkbox) {
-                // Add visual feedback
-                checkbox.addEventListener('change', (e) => {
-                    const label = e.target.nextElementSibling;
-                    if (e.target.checked) {
-                        label.classList.add('text-green-400');
-                        label.classList.remove('text-gray-400');
+            if (sliderElement && valueElement) {
+                sliderElement.addEventListener('input', (e) => {
+                    const value = e.target.value;
+                    if (slider.id === 'min-pool-size') {
+                        valueElement.textContent = `$${(value / 1000).toFixed(0)}K`;
+                    } else if (slider.id === 'safety-check-period') {
+                        valueElement.textContent = `${value}s`;
                     } else {
-                        label.classList.add('text-gray-400');
-                        label.classList.remove('text-green-400');
+                        valueElement.textContent = `${value}%`;
                     }
                 });
             }
         });
     }
 
-    // Helper: Send config to backend and start bot
+    // Setup safety checkboxes
+    function setupSafetyCheckboxes() {
+        const checkboxes = [
+            'require-socials', 'require-liquidity-burnt', 'require-immutable-metadata',
+            'require-mint-authority-renounced', 'require-freeze-authority-renounced',
+            'only-pump-fun-migrated'
+        ];
+
+        checkboxes.forEach(id => {
+            const checkbox = document.getElementById(id);
+            if (checkbox) {
+                checkbox.addEventListener('change', (e) => {
+                    console.log(`${id}: ${e.target.checked}`);
+                });
+            }
+        });
+    }
+
+    // Apply config and start bot
     async function applyConfigAndStartBot(config, feedbackId) {
-        const feedback = document.getElementById(feedbackId);
-        feedback.textContent = 'Saving settings...';
         try {
-            const res = await fetch('/api/settings', {
+            const response = await fetch('/api/apply-config', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${userToken}`
+                },
                 body: JSON.stringify(config)
             });
-            if (!res.ok) throw new Error('Failed to save settings');
-            feedback.textContent = 'Settings saved. Starting bot...';
-            const startRes = await fetch('/api/start', { method: 'POST' });
-            if (!startRes.ok) throw new Error('Failed to start bot');
-            feedback.textContent = 'Bot started successfully!';
-            // Optionally launch the bot UI here
-        } catch (err) {
-            feedback.textContent = 'Error: ' + err.message;
-        }
-    }
 
-    // Enable/disable Launch button based on auto-sell checkbox
-    function setupAutoSellToggle(prefix = '', buttonId, checkboxId) {
-        const btn = document.getElementById(buttonId);
-        const chk = document.getElementById(checkboxId);
-        if (!btn || !chk) return;
-        function updateBtn() {
-            btn.disabled = !chk.checked;
-            if (chk.checked) {
-                btn.classList.remove('opacity-50', 'cursor-not-allowed');
-            } else {
-                btn.classList.add('opacity-50', 'cursor-not-allowed');
-            }
-        }
-        chk.addEventListener('change', updateBtn);
-        updateBtn();
-    }
-
-    // Setup config panel logic (shared, always visible)
-    function setupConfigPanel() {
-        const form = document.getElementById('bot-config-form');
-        if (form) {
-            document.getElementById('launch-bot').onclick = () => {
-                const config = collectConfigValues('');
-                applyConfigAndStartBot(config, 'bot-config-feedback');
-            };
-            setupAutoSellToggle('', 'launch-bot', 'config-auto-sell');
-        }
-    }
-
-    // Inject global footer with FAQ box
-    function injectFooter() {
-        const footer = document.getElementById('footer');
-        if (!footer) return;
-        footer.innerHTML = `
-        <footer class="w-full bg-gray-900 border-t border-blue-500/20 mt-12 py-8 px-4">
-            <div class="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
-                <div>
-                    <div class="flex justify-center mb-2"><i class="fas fa-bullseye text-green-400 text-2xl"></i></div>
-                    <h4 class="font-bold mb-1 text-green-400">How fast can the bot detect new tokens?</h4>
-                    <p class="text-gray-400 text-sm">Our bot can detect new token launches in as little as 0.01 seconds, giving you a significant advantage over manual traders who typically see new listings after 60+ seconds.</p>
-                </div>
-                <div>
-                    <div class="flex justify-center mb-2"><i class="fas fa-shield-alt text-green-400 text-2xl"></i></div>
-                    <h4 class="font-bold mb-1 text-green-400">Is my wallet safe?</h4>
-                    <p class="text-gray-400 text-sm">Yes, your wallet is never stored on our servers. It's only used locally in your browser to sign transactions and is never transmitted to us or any third parties.</p>
-                </div>
-                <div>
-                    <div class="flex justify-center mb-2"><i class="fas fa-pencil-alt text-green-400 text-2xl"></i></div>
-                    <h4 class="font-bold mb-1 text-green-400">Can I customize the trading strategy?</h4>
-                    <p class="text-gray-400 text-sm">Yes, you can customize take profit percentages, stop loss levels, buying amounts, and many other parameters to match your trading style and risk tolerance.</p>
-                </div>
-            </div>
-            <div class="text-center text-gray-500 text-xs mt-8">&copy; 2025 SOUL SPARK Bot | MEV BOT.</div>
-        </footer>
-        `;
-    }
-
-    // --- Dashboard close logic ---
-    function setupDashboardCloseLogic() {
-        const closeBtn = document.getElementById('close-dashboard-btn');
-        const closeConfirmModal = document.getElementById('close-confirm-modal');
-        const cancelCloseBtn = document.getElementById('cancel-close-dashboard');
-        const confirmCloseBtn = document.getElementById('confirm-close-dashboard');
-        const dashboardModal = elements.dashboardModal;
-
-        if (closeBtn && closeConfirmModal && cancelCloseBtn && confirmCloseBtn && dashboardModal) {
-            closeBtn.onclick = function() {
-                closeConfirmModal.classList.remove('hidden');
-            };
-            cancelCloseBtn.onclick = function() {
-                closeConfirmModal.classList.add('hidden');
-            };
-            confirmCloseBtn.onclick = function() {
-                closeConfirmModal.classList.add('hidden');
-                dashboardModal.classList.add('hidden');
-                resetBotState();
-            };
-        }
-    }
-
-    // --- Stop trading bot ---
-    async function stopTradingBot() {
-        try {
-            // Stop trading on backend
-            const response = await fetch('/api/stop', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
             const result = await response.json();
             
-            if (result.stopped) {
-        tradingActive = false;
-        if (tradingInterval) {
-            clearInterval(tradingInterval);
-            tradingInterval = null;
-        }
-        // Update status in sidebar and top
-        const statusElement = document.querySelector('.bg-green-600, .bg-red-600');
-        if (statusElement) {
-            statusElement.textContent = 'Stopped';
-            statusElement.classList.remove('bg-green-600');
-            statusElement.classList.add('bg-red-600');
-        }
-        const sidebarStatus = document.querySelectorAll('.sidebar-status');
-        sidebarStatus.forEach(el => {
-            el.textContent = 'Stopped';
-            el.classList.remove('bg-green-600');
-            el.classList.add('bg-red-600');
-        });
-                
-                showNotification('Trading bot stopped successfully', 'success');
+            if (result.success) {
+                showNotification('Configuration applied successfully!', 'success');
+                if (feedbackId) {
+                    document.getElementById(feedbackId).textContent = 'Configuration applied!';
+                }
             } else {
-                showNotification('Failed to stop trading bot', 'error');
+                showNotification(result.error || 'Failed to apply configuration', 'error');
             }
         } catch (error) {
-            showNotification('Error stopping bot: ' + error.message, 'error');
+            console.error('Apply config error:', error);
+            showNotification('Error applying configuration', 'error');
         }
     }
 
-    // Hide loading overlay when app is ready, but wait at least 2 seconds
-    let loadingOverlayMinTimePassed = false;
-    let loadingOverlayAppReady = false;
+    // Setup auto sell toggle
+    function setupAutoSellToggle(prefix = '', buttonId, checkboxId) {
+        const button = document.getElementById(prefix + buttonId);
+        const checkbox = document.getElementById(prefix + checkboxId);
+        
+        if (button && checkbox) {
+            function updateBtn() {
+                if (checkbox.checked) {
+                    button.textContent = 'Auto-Sell: ON';
+                    button.className = 'bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition-colors';
+                } else {
+                    button.textContent = 'Auto-Sell: OFF';
+                    button.className = 'bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition-colors';
+                }
+            }
+            
+            checkbox.addEventListener('change', updateBtn);
+            updateBtn();
+        }
+    }
+
+    // Setup config panel
+    function setupConfigPanel() {
+        const buyModeSelect = document.getElementById('buy-mode');
+        const fixedBuySection = document.getElementById('fixed-buy-section');
+        const randomBuySection = document.getElementById('random-buy-section');
+
+        if (buyModeSelect && fixedBuySection && randomBuySection) {
+            buyModeSelect.addEventListener('change', (e) => {
+                if (e.target.value === 'fixed') {
+                    fixedBuySection.classList.remove('hidden');
+                    randomBuySection.classList.add('hidden');
+                } else {
+                    fixedBuySection.classList.add('hidden');
+                    randomBuySection.classList.remove('hidden');
+                }
+            });
+        }
+
+        setupSafetySliders();
+        setupSafetyCheckboxes();
+        setupBuyModal();
+    }
+
+    // Inject footer
+    function injectFooter() {
+        const footer = document.createElement('footer');
+        footer.className = 'bg-black/50 backdrop-blur-sm border-t border-blue-500/30 mt-12';
+        footer.innerHTML = `
+            <div class="container mx-auto px-4 py-6">
+                <div class="text-center text-gray-400">
+                    <p>&copy; 2024 Best Sniper Sol. Professional Solana Trading Bot.</p>
+                    <p class="text-sm mt-2">Advanced safety features and real-time trading automation.</p>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(footer);
+    }
+
+    // Setup dashboard close logic
+    function setupDashboardCloseLogic() {
+        window.addEventListener('beforeunload', (e) => {
+            if (botRunning) {
+                e.preventDefault();
+                e.returnValue = 'Trading bot is running. Are you sure you want to leave?';
+            }
+        });
+    }
+
+    // Stop trading bot
+    async function stopTradingBot() {
+        if (!userToken) return;
+
+        try {
+            const response = await fetch('/api/stop-bot', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${userToken}`
+                }
+            });
+
+            const result = await response.json();
+            
+            if (result.success) {
+                botRunning = false;
+                if (elements.botStatus) {
+                    elements.botStatus.textContent = 'Stopped';
+                    elements.botStatus.className = 'text-2xl font-bold text-red-400';
+                }
+                
+                elements.launchButtons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.classList.remove('opacity-50');
+                });
+                
+                showNotification('Trading bot stopped successfully!', 'success');
+            } else {
+                showNotification(result.error || 'Failed to stop bot', 'error');
+            }
+        } catch (error) {
+            console.error('Stop bot error:', error);
+            showNotification('Error stopping bot', 'error');
+        }
+    }
+
+    // Hide loading overlay if ready
     function hideLoadingOverlayIfReady() {
-        if (loadingOverlayMinTimePassed && loadingOverlayAppReady) {
-            const overlay = document.getElementById('app-loading-overlay');
-            if (overlay) {
-                overlay.style.opacity = '0';
-                setTimeout(() => { overlay.style.display = 'none'; }, 600);
+        if (document.readyState === 'complete') {
+            hideLoadingOverlay();
+        } else {
+            window.addEventListener('load', hideLoadingOverlay);
+        }
+    }
+
+    // Hide loading overlay
+    function hideLoadingOverlay() {
+        if (elements.loadingOverlay) {
+            elements.loadingOverlay.classList.add('hidden');
+        }
+    }
+
+    // Socket listeners
+    function setupSocketListeners() {
+        socket.on('connect', () => {
+            console.log('Connected to server');
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+        });
+
+        socket.on('log', (message) => {
+            addLog(message);
+        });
+
+        socket.on('trading_data', (data) => {
+            handleTradingData(data);
+        });
+
+        socket.on('bot_status', (status) => {
+            updateBotStatus(status);
+        });
+    }
+
+    // Add log message
+    function addLog(message) {
+        if (elements.logContainer) {
+            const logEntry = document.createElement('div');
+            logEntry.className = 'text-green-400 mb-1';
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            elements.logContainer.appendChild(logEntry);
+            elements.logContainer.scrollTop = elements.logContainer.scrollHeight;
+            
+            logs.push(message);
+            if (logs.length > 1000) {
+                logs.shift();
             }
         }
     }
-    setTimeout(() => {
-        loadingOverlayMinTimePassed = true;
-        hideLoadingOverlayIfReady();
-    }, 2000);
-    function hideLoadingOverlay() {
-        loadingOverlayAppReady = true;
-        hideLoadingOverlayIfReady();
+
+    // Handle trading data
+    function handleTradingData(data) {
+        switch (data.type) {
+            case 'new_token':
+                addLog(`New token detected: ${data.token.name} (${data.token.symbol}) from ${data.source}`);
+                break;
+            case 'buy_attempt':
+                addLog(`Buying ${data.token.name} (${data.token.symbol}) for ${data.amount} SOL`);
+                break;
+            case 'buy_success':
+                addLog(`Successfully bought ${data.token.name} (${data.token.symbol}) - Tx: ${data.txHash}`);
+                break;
+            case 'buy_failed':
+                addLog(`Failed to buy ${data.token.name} (${data.token.symbol}): ${data.error}`);
+                break;
+            case 'sell_attempt':
+                addLog(`Selling ${data.token.name} (${data.token.symbol}) - Profit: ${data.profit}%`);
+                break;
+            case 'sell_success':
+                addLog(`Successfully sold ${data.token.name} (${data.token.symbol}) - Profit: ${data.profit}% - Tx: ${data.txHash}`);
+                break;
+            case 'sell_failed':
+                addLog(`Failed to sell ${data.token.name} (${data.token.symbol}): ${data.error}`);
+                break;
+        }
     }
 
-    // Initialize the application when DOM is loaded
+    // Update bot status
+    function updateBotStatus(status) {
+        botRunning = status.running;
+        if (elements.botStatus) {
+            elements.botStatus.textContent = status.running ? 'Running' : 'Stopped';
+            elements.botStatus.className = `text-2xl font-bold ${status.running ? 'text-green-400' : 'text-red-400'}`;
+        }
+    }
+
+    // Load overview data
+    function loadOverviewData() {
+        // This would fetch real data from the backend
+        console.log('Loading overview data...');
+    }
+
+    // Load trading data
+    function loadTradingData() {
+        // This would fetch real trading data from the backend
+        console.log('Loading trading data...');
+    }
+
+    // Load settings
+    function loadSettings() {
+        // Load current settings from backend
+        console.log('Loading settings...');
+    }
+
+    // Load logs
+    function loadLogs() {
+        // Load recent logs from backend
+        console.log('Loading logs...');
+    }
+
+    // Make functions globally accessible
+    window.showLoginModal = showLoginModal;
+    window.connectWallet = connectWallet;
+    window.disconnectWallet = disconnectWallet;
+    window.launchTradingBot = launchTradingBot;
+    window.stopTradingBot = stopTradingBot;
+
+    // Initialize when DOM is ready
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            init();
-            injectFooter();
-            setupBuyModal();
-            setupConfigPanel();
-            setupDashboardCloseLogic();
-            setupSafetySliders();
-            setupSafetyCheckboxes();
-            hideLoadingOverlay();
-        });
+        document.addEventListener('DOMContentLoaded', init);
     } else {
         init();
-        injectFooter();
-        setupBuyModal();
-        setupConfigPanel();
-        setupDashboardCloseLogic();
-        setupSafetySliders();
-        setupSafetyCheckboxes();
-        hideLoadingOverlay();
     }
-
-    // Export functions for global access if needed
-    window.BestSniperSol = {
-        switchTab,
-        launchTradingBot,
-        stopTradingBot,
-        connectWallet,
-        hideAllModals
-    };
 })(); 

@@ -1,26 +1,21 @@
 ﻿Pump Fun Sniper Bot 
 
-
-Reference Page: https://snipersol.app/ (Watch Video On Homepage)
+Competitor Reference Page: https://snipersol.app/ 
+Watch Video: https://www.youtube.com/watch?v=_xGQRt2zxU0
 YouTube Channel: https://www.youtube.com/@snipesolbot/videos
-
 
 What is a Sniper Bot?
 A Sniper Bot is a powerful decentralized application (dApp) designed to help users snipe newly launched tokens on the Solana blockchain with ease. No coding experience is required—our bot comes with customizable settings to suit your trading preferences.
 
-
 Built for speed and efficiency, a Sniper Bot ensures you can purchase tokens the moment they go live. The goal is to create a secure trading bot to snipe new tokens. 
-
 
 Your Job As Developer: 
 Copy the UI of https://snipersol.app/ and create a similar trading bot with their reference source code below. Keep it simple as possible and model everything. The name of our bot will be Best Sniper Sol. Color scheme will be black and royal blue similar to their website. 
-
 
 Modified Source Code: 
 ​​
 Part 1 – Backend Code
 This includes server setup, Socket.io, Auto-Restart logic, and trading engine.
-
 
 // server.js
 import express from 'express';
@@ -262,10 +257,8 @@ export default {
   detachClient: () => { ioClient = null; }
 };
 
-
 Here’s Part 2 – the Frontend for your SniperSol-style dashboard.
 This includes the Auto-Restart toggle, Start/Stop/Sell All buttons, sliders for all settings, and live logs streamed via WebSockets. Place these files in your public/ folder (so server.js can serve them automatically).
-
 
 public/index.html
 <!DOCTYPE html>
@@ -281,7 +274,6 @@ public/index.html
   <script src="/app.js"></script>
 </body>
 </html>
-
 
 public/app.js
 (() => {
@@ -382,13 +374,8 @@ public/app.js
 
 
 
-
-
-
-
 How to Run the Full Project
 1. Make sure your folder looks like:
-
 
 project-root/
 │
@@ -412,31 +399,27 @@ node server.js
 5. Open your browser at:
 http://localhost:3000
 
-
 What You Get
-* Dashboard with:
-   * Start Bot / Stop Bot / Sell All buttons
-   * Auto-Restart toggle (off by default)
-   * Live logs streamed via WebSocket
-   * Sliders for buy ranges, profit targets, stop-loss, liquidity
-* Bot will resume automatically after a reboot only if you enable Auto-Restart.
-* Single port deployment (easy to host on DigitalOcean, Render, or Heroku)
+Dashboard with:
+Start Bot / Stop Bot / Sell All buttons
+Auto-Restart toggle (off by default)
+Live logs streamed via WebSocket
+Sliders for buy ranges, profit targets, stop-loss, liquidity
+Bot will resume automatically after a reboot only if you enable Auto-Restart.
+Single port deployment (easy to host on DigitalOcean, Render, or Heroku)
 You now have the full project (backend + frontend) with:
-* Pumpfun + Dexscreener trading bot
-* SniperSol-style dashboard (single port, live logs, sliders, buttons)
-* Manual start by default with optional Auto-Restart toggle
-* Ready to run locally or deploy on a VPS/cloud.
+Pumpfun + Dexscreener trading bot
+SniperSol-style dashboard (single port, live logs, sliders, buttons)
+Manual start by default with optional Auto-Restart toggle
+Ready to run locally or deploy on a VPS/cloud.
 Your developer can now:
-1. Copy the provided code into a project folder.
-2. Run npm install && node server.js.
-3. Open http://localhost:3000 to use the dashboard.
-
-
+Copy the provided code into a project folder.
+Run npm install && node server.js.
+Open http://localhost:3000 to use the dashboard.
 
 
 Sniper Sol Original Source Code (https://snipersol.app/source-code/)
 Below, you'll find the original source code along with usage instructions.
-
 
 sell.js
 require('dotenv').config();
@@ -534,9 +517,7 @@ sellAllTokens().then(() => {
 });
     
 
-
 /script.mjs
-
 
 import 'dotenv/config';
 import axios from 'axios';
@@ -966,19 +947,14 @@ Press Enter to support the developer with a 0.05 SOL donation. (Press C to conti
 splashScreen();
 screen.key(['escape', 'q', 'C-c'], (ch, key) => process.exit(0));
 
-
 Requirements
 Node.js: JavaScript runtime built on Chrome V8 JavaScript engine.
 
-
 Solana CLI: Command-line interface for interacting with the Solana blockchain.
-
 
 Selenium WebDriver (Chrome): Automated web browser.
 
-
 Install dependencies: ```sh npm install dotenv axios @solana/web3.js @solana/spl-token selenium-webdriver fs bs58 blessed blessed-contrib ```
-
 
 Set up your environment variables: Create a .env file in the root directory and add the following:
 SOLANA_WALLET_PATH=/path/to/your/solana/wallet.json
@@ -986,15 +962,16 @@ MINIMUM_BUY_AMOUNT=0.015
 MAX_BONDING_CURVE_PROGRESS=10
 SELL_BONDING_CURVE_PROGRESS=15
 
-
 Configure Solana CLI:
 ```sh solana config set --url https://api.mainnet-beta.solana.com solana config set --keypair /path/to/your/solana/wallet.json ```
-
 
 Usage
 Run the trading bot:
 ```sh node script.mjs ```  
 
-
 Sell all SPL tokens:
-```sh node sell.js ```
+```sh node sell.js ``` 
+
+
+
+

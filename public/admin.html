@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soul Spark Admin Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="/socket.io/socket.io.js"></script>
+    
+    <!-- Solana Web3.js for wallet connection -->
+    <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+    
+    <!-- Phantom Wallet Auto-Connect Script -->
+    <script>
+        window.addEventListener('load', () => {
+            if (window.solana && window.solana.isPhantom) {
+                window.solana.connect({ onlyIfTrusted: true });
+            }
+        });
+    </script>
+    
+    <style>
+        .glow-blue { text-shadow: 0 0 10px #3b82f6, 0 0 20px #3b82f6, 0 0 30px #3b82f6; }
+        .card-bg { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); }
+        .gradient-bg { background: linear-gradient(135deg, #1e293b 0%, #0f172a 50%, #1e293b 100%); }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <!-- Login Screen -->
+    <div id="loginScreen" class="min-h-screen flex items-center justify-center gradient-bg">
+        <div class="card-bg rounded-2xl shadow-2xl border border-blue-700/40 p-8 w-full max-w-md">
+            <div class="text-center mb-8">
+                <h1 class="text-3xl font-bold text-blue-400 glow-blue mb-2">Soul Spark</h1>
+                <p class="text-gray-400">Admin Panel</p>
+            </div>
+            
+            <form id="loginForm" class="space-y-6">
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Username</label>
+                    <input type="text" id="loginUsername" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-3 focus:border-blue-400 focus:outline-none" required>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Password</label>
+                    <input type="password" id="loginPassword" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-3 focus:border-blue-400 focus:outline-none" required>
+                </div>
+                
+                <button type="submit" class="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105">
+                    <i class="fas fa-sign-in-alt mr-2"></i>Login
+                </button>
+            </form>
+            
+            <div id="loginError" class="mt-4 text-red-400 text-center hidden"></div>
+        </div>
+    </div>
+
+    <!-- Admin Dashboard -->
+    <div id="adminDashboard" class="hidden">
+        <!-- Header -->
+        <header class="bg-gray-800 border-b border-blue-700/40 p-4">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <h1 class="text-2xl font-bold text-blue-400 glow-blue">Soul Spark Admin</h1>
+                    <span class="bg-green-600 text-white px-3 py-1 rounded-full text-sm">Connected</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span id="adminUsername" class="text-gray-300"></span>
+                    <button id="logoutBtn" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="flex">
+            <!-- Sidebar -->
+            <aside class="w-64 bg-gray-800 border-r border-blue-700/40 min-h-screen">
+                <nav class="p-4">
+                    <ul class="space-y-2">
+                        <li>
+                            <button class="nav-btn active w-full text-left p-3 rounded-lg bg-blue-600 text-white" data-tab="dashboard">
+                                <i class="fas fa-tachometer-alt mr-3"></i>Dashboard
+                            </button>
+                        </li>
+                        <li>
+                            <button class="nav-btn w-full text-left p-3 rounded-lg hover:bg-gray-700 text-gray-300" data-tab="users">
+                                <i class="fas fa-users mr-3"></i>User Management
+                            </button>
+                        </li>
+                        <li>
+                            <button class="nav-btn w-full text-left p-3 rounded-lg hover:bg-gray-700 text-gray-300" data-tab="licenses">
+                                <i class="fas fa-key mr-3"></i>License Management
+                            </button>
+                        </li>
+                        <li>
+                            <button class="nav-btn w-full text-left p-3 rounded-lg hover:bg-gray-700 text-gray-300" data-tab="payments">
+                                <i class="fas fa-credit-card mr-3"></i>Payment Monitoring
+                            </button>
+                        </li>
+                        <li>
+                            <button class="nav-btn w-full text-left p-3 rounded-lg hover:bg-gray-700 text-gray-300" data-tab="trading">
+                                <i class="fas fa-chart-line mr-3"></i>Trading Overview
+                            </button>
+                        </li>
+                        <li>
+                            <button class="nav-btn w-full text-left p-3 rounded-lg hover:bg-gray-700 text-gray-300" data-tab="settings">
+                                <i class="fas fa-cog mr-3"></i>Settings
+                            </button>
+                        </li>
+                        <li>
+                            <button class="nav-btn w-full text-left p-3 rounded-lg hover:bg-gray-700 text-gray-300" data-tab="jwt">
+                                <i class="fas fa-shield-alt mr-3"></i>JWT Management
+                            </button>
+                        </li>
+                        <li>
+                            <button class="nav-btn w-full text-left p-3 rounded-lg hover:bg-gray-700 text-gray-300" data-tab="bot-test">
+                                <i class="fas fa-robot mr-3"></i>Bot Testing
+                            </button>
+                        </li>
+                        <li>
+                            <a href="/admin-bot" target="_blank" class="nav-btn w-full text-left p-3 rounded-lg hover:bg-gray-700 text-gray-300 block">
+                                <i class="fas fa-chart-line mr-3"></i>Live Bot Dashboard
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+            </aside>
+
+            <!-- Content Area -->
+            <main class="flex-1 p-6">
+                <!-- Dashboard Tab -->
+                <div id="dashboard-tab" class="tab-content">
+                    <h2 class="text-2xl font-bold mb-6 text-blue-400">Dashboard Overview</h2>
+                    
+                    <!-- Stats Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <div class="flex items-center">
+                                <div class="p-3 bg-blue-600 rounded-lg">
+                                    <i class="fas fa-users text-white text-xl"></i>
+                                </div>
+                                <div class="ml-4">
+                                    <p class="text-gray-400 text-sm">Total Users</p>
+                                    <p id="totalUsers" class="text-2xl font-bold text-white">0</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <div class="flex items-center">
+                                <div class="p-3 bg-green-600 rounded-lg">
+                                    <i class="fas fa-user-check text-white text-xl"></i>
+                                </div>
+                                <div class="ml-4">
+                                    <p class="text-gray-400 text-sm">Active Users</p>
+                                    <p id="activeUsers" class="text-2xl font-bold text-white">0</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <div class="flex items-center">
+                                <div class="p-3 bg-yellow-600 rounded-lg">
+                                    <i class="fas fa-key text-white text-xl"></i>
+                                </div>
+                                <div class="ml-4">
+                                    <p class="text-gray-400 text-sm">Active Licenses</p>
+                                    <p id="activeLicenses" class="text-2xl font-bold text-white">0</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <div class="flex items-center">
+                                <div class="p-3 bg-red-600 rounded-lg">
+                                    <i class="fas fa-exclamation-triangle text-white text-xl"></i>
+                                </div>
+                                <div class="ml-4">
+                                    <p class="text-gray-400 text-sm">Expired Licenses</p>
+                                    <p id="expiredLicenses" class="text-2xl font-bold text-white">0</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Recent Activity -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <h3 class="text-lg font-semibold mb-4 text-blue-400">Recent Logins</h3>
+                            <div id="recentLogins" class="space-y-3">
+                                <!-- Recent logins will be populated here -->
+                            </div>
+                        </div>
+                        
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <h3 class="text-lg font-semibold mb-4 text-blue-400">Trading Status</h3>
+                            <div id="tradingStatus" class="space-y-3">
+                                <!-- Trading status will be populated here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Users Tab -->
+                <div id="users-tab" class="tab-content hidden">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold text-blue-400">User Management</h2>
+                        <button id="addUserBtn" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg transition-colors">
+                            <i class="fas fa-plus mr-2"></i>Add User
+                        </button>
+                    </div>
+                    
+                    <div class="card-bg rounded-lg border border-blue-700/40 overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gray-700">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Username</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Email</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Role</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">License</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Last Login</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="usersTableBody" class="divide-y divide-gray-700">
+                                    <!-- Users will be populated here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Licenses Tab -->
+                <div id="licenses-tab" class="tab-content hidden">
+                    <h2 class="text-2xl font-bold mb-6 text-blue-400">License Management</h2>
+                    
+                    <div class="card-bg rounded-lg border border-blue-700/40 overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gray-700">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Username</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Package</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">License Key</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Usage</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Expires</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="licensesTableBody" class="divide-y divide-gray-700">
+                                    <!-- Licenses will be populated here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Payments Tab -->
+                <div id="payments-tab" class="tab-content hidden">
+                    <h2 class="text-2xl font-bold mb-6 text-blue-400">Payment Monitoring</h2>
+                    
+                    <!-- Payment Status Overview -->
+                    <div class="grid md:grid-cols-4 gap-6 mb-8">
+                        <div class="card-bg rounded-lg p-6 border border-green-500/30">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Monitoring Status</p>
+                                    <p id="monitoring-status" class="text-2xl font-bold text-green-400">Active</p>
+                                </div>
+                                <i class="fas fa-eye text-3xl text-green-400"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="card-bg rounded-lg p-6 border border-blue-500/30">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Total Payments</p>
+                                    <p id="total-payments" class="text-2xl font-bold text-blue-400">0</p>
+                                </div>
+                                <i class="fas fa-credit-card text-3xl text-blue-400"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="card-bg rounded-lg p-6 border border-purple-500/30">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Security Events</p>
+                                    <p id="security-events" class="text-2xl font-bold text-purple-400">0</p>
+                                </div>
+                                <i class="fas fa-shield-alt text-3xl text-purple-400"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="card-bg rounded-lg p-6 border border-yellow-500/30">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Client Wallet</p>
+                                    <p id="client-wallet" class="text-sm font-mono text-yellow-400">HCkaYTj31n1rcffFUM5VZD5DTp2thL74tZvFp7i8rAok</p>
+                                </div>
+                                <i class="fas fa-wallet text-3xl text-yellow-400"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Payment Controls -->
+                    <div class="card-bg rounded-lg p-6 border border-blue-500/30 mb-8">
+                        <h3 class="text-lg font-semibold text-blue-400 mb-4">Payment Monitoring Controls</h3>
+                        <div class="flex space-x-4">
+                            <button id="start-monitoring-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition-colors">
+                                <i class="fas fa-play mr-2"></i>Start Monitoring
+                            </button>
+                            <button id="stop-monitoring-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors">
+                                <i class="fas fa-stop mr-2"></i>Stop Monitoring
+                            </button>
+                            <button id="refresh-payments-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition-colors">
+                                <i class="fas fa-sync mr-2"></i>Refresh Data
+                            </button>
+                            <button id="export-payments-btn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition-colors">
+                                <i class="fas fa-download mr-2"></i>Export History
+                            </button>
+                            <button id="export-security-btn" class="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded transition-colors">
+                                <i class="fas fa-file-alt mr-2"></i>Export Security Logs
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Payment History -->
+                    <div class="card-bg rounded-lg p-6 border border-blue-500/30 mb-8">
+                        <h3 class="text-lg font-semibold text-blue-400 mb-4">Payment History</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gray-700">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Timestamp</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Sender Address</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Amount (SOL)</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Package</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Action</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Transaction</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="paymentHistoryTableBody" class="divide-y divide-gray-700">
+                                    <tr>
+                                        <td colspan="6" class="px-6 py-4 text-center text-gray-400">
+                                            <i class="fas fa-credit-card text-2xl mb-2"></i>
+                                            <p>No payments recorded yet</p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Security Logs -->
+                    <div class="card-bg rounded-lg p-6 border border-blue-500/30">
+                        <h3 class="text-lg font-semibold text-blue-400 mb-4">Security Logs</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gray-700">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Timestamp</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Level</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Message</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Transaction</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="securityLogsTableBody" class="divide-y divide-gray-700">
+                                    <tr>
+                                        <td colspan="4" class="px-6 py-4 text-center text-gray-400">
+                                            <i class="fas fa-shield-alt text-2xl mb-2"></i>
+                                            <p>No security events recorded yet</p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trading Tab -->
+                <div id="trading-tab" class="tab-content hidden">
+                    <h2 class="text-2xl font-bold mb-6 text-blue-400">Trading Overview</h2>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <h3 class="text-lg font-semibold mb-4 text-blue-400">Bot Status</h3>
+                            <div id="botStatus" class="space-y-3">
+                                <!-- Bot status will be populated here -->
+                            </div>
+                        </div>
+                        
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <h3 class="text-lg font-semibold mb-4 text-blue-400">Connected Wallets</h3>
+                            <div id="connectedWallets" class="space-y-3">
+                                <!-- Connected wallets will be populated here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Tab -->
+                <div id="settings-tab" class="tab-content hidden">
+                    <h2 class="text-2xl font-bold mb-6 text-blue-400">Admin Settings</h2>
+                    
+                    <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                        <h3 class="text-lg font-semibold mb-4 text-blue-400">System Configuration</h3>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-semibold mb-2 text-blue-300">JWT Secret Key</label>
+                                <input type="text" id="jwtSecret" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none" placeholder="Enter new JWT secret">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold mb-2 text-blue-300">Session Timeout (hours)</label>
+                                <input type="number" id="sessionTimeout" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none" value="24" min="1" max="168">
+                            </div>
+                            <button id="saveSettingsBtn" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors">
+                                <i class="fas fa-save mr-2"></i>Save Settings
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- JWT Management Tab -->
+                <div id="jwt-tab" class="tab-content hidden">
+                    <h2 class="text-2xl font-bold mb-6 text-blue-400">JWT Management</h2>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Current JWT Secret -->
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <h3 class="text-lg font-semibold mb-4 text-blue-400">Current JWT Secret</h3>
+                            <div class="space-y-4">
+                                <div class="flex items-center space-x-2">
+                                    <input type="password" id="currentJwtSecret" class="flex-1 bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none" readonly>
+                                    <button id="showJwtSecret" class="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded transition-colors">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                    <button id="copyJwtSecret" class="bg-green-600 hover:bg-green-700 px-3 py-2 rounded transition-colors">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </div>
+                                <div class="text-sm text-gray-400">
+                                    <p>Keep this secret secure. Changing it will invalidate all existing tokens.</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Generate New JWT Secret -->
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <h3 class="text-lg font-semibold mb-4 text-blue-400">Generate New Secret</h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-semibold mb-2 text-blue-300">Secret Length</label>
+                                    <select id="jwtSecretLength" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                                        <option value="32">32 characters</option>
+                                        <option value="64" selected>64 characters</option>
+                                        <option value="128">128 characters</option>
+                                    </select>
+                                </div>
+                                <button id="generateNewJwt" class="w-full bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition-colors">
+                                    <i class="fas fa-key mr-2"></i>Generate New Secret
+                                </button>
+                                <div class="text-sm text-red-400">
+                                    <p><i class="fas fa-exclamation-triangle mr-1"></i>This will invalidate all existing tokens!</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- JWT Statistics -->
+                    <div class="card-bg rounded-lg p-6 border border-blue-700/40 mt-6">
+                        <h3 class="text-lg font-semibold mb-4 text-blue-400">JWT Statistics</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div class="text-center">
+                                <p class="text-2xl font-bold text-white" id="totalTokens">0</p>
+                                <p class="text-sm text-gray-400">Total Tokens</p>
+                            </div>
+                            <div class="text-center">
+                                <p class="text-2xl font-bold text-green-400" id="activeTokens">0</p>
+                                <p class="text-sm text-gray-400">Active Tokens</p>
+                            </div>
+                            <div class="text-center">
+                                <p class="text-2xl font-bold text-red-400" id="expiredTokens">0</p>
+                                <p class="text-sm text-gray-400">Expired Tokens</p>
+                            </div>
+                            <div class="text-center">
+                                <p class="text-lg font-bold text-blue-400" id="lastGenerated">-</p>
+                                <p class="text-sm text-gray-400">Last Generated</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bot Testing Tab -->
+                <div id="bot-test-tab" class="tab-content hidden">
+                    <h2 class="text-2xl font-bold mb-6 text-blue-400">Admin Bot Interface</h2>
+                    
+                    <!-- Bot Status Overview -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Bot Status</p>
+                                    <p id="adminBotStatus" class="text-2xl font-bold text-red-400">Stopped</p>
+                                </div>
+                                <i class="fas fa-robot text-3xl text-blue-400"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Total Trades</p>
+                                    <p id="adminTotalTrades" class="text-2xl font-bold text-white">0</p>
+                                </div>
+                                <i class="fas fa-chart-line text-3xl text-green-400"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Total Profit</p>
+                                    <p id="adminTotalProfit" class="text-2xl font-bold text-green-400">0 SOL</p>
+                                </div>
+                                <i class="fas fa-coins text-3xl text-yellow-400"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Success Rate</p>
+                                    <p id="adminSuccessRate" class="text-2xl font-bold text-blue-400">0%</p>
+                                </div>
+                                <i class="fas fa-percentage text-3xl text-purple-400"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Admin Bot Controls -->
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <h3 class="text-lg font-semibold mb-4 text-blue-400">Bot Controls</h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <button id="adminConnectWallet" class="w-full bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors mb-3">
+                                        <i class="fas fa-wallet mr-2"></i>Connect Admin Wallet
+                                    </button>
+                                    <div id="adminWalletStatus" class="hidden bg-green-900/30 border border-green-500/50 rounded-lg p-3">
+                                        <p class="text-green-300 font-semibold">Wallet Connected!</p>
+                                        <p id="adminWalletAddress" class="text-xs text-gray-400"></p>
+                                        <button id="adminDisconnectWallet" class="mt-2 bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm transition-colors w-full">
+                                            <i class="fas fa-unlink mr-1"></i>Disconnect Wallet
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <button id="adminStartBot" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg transition-colors">
+                                        <i class="fas fa-play mr-2"></i>Start Bot
+                                    </button>
+                                    <button id="adminStopBot" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition-colors">
+                                        <i class="fas fa-stop mr-2"></i>Stop Bot
+                                    </button>
+                                </div>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <button id="adminSellAll" class="bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded-lg transition-colors">
+                                        <i class="fas fa-sell mr-2"></i>Sell All
+                                    </button>
+                                    <button id="adminTestBot" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg transition-colors">
+                                        <i class="fas fa-vial mr-2"></i>Test Trade
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Bot Configuration -->
+                        <div class="card-bg rounded-lg p-6 border border-blue-700/40">
+                            <h3 class="text-lg font-semibold mb-4 text-blue-400">Bot Configuration</h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-semibold mb-2 text-blue-300">Buy Amount (SOL)</label>
+                                    <input type="number" id="adminBuyAmount" step="0.01" min="0.01" max="10" value="0.1" class="w-full bg-gray-800 border border-blue-700 rounded px-3 py-2 focus:border-blue-400 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold mb-2 text-blue-300">Profit Target (%)</label>
+                                    <input type="number" id="adminProfitTarget" min="1" max="1000" value="25" class="w-full bg-gray-800 border border-blue-700 rounded px-3 py-2 focus:border-blue-400 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold mb-2 text-blue-300">Stop Loss (%)</label>
+                                    <input type="number" id="adminStopLoss" min="1" max="100" value="10" class="w-full bg-gray-800 border border-blue-700 rounded px-3 py-2 focus:border-blue-400 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold mb-2 text-blue-300">Min Liquidity (SOL)</label>
+                                    <input type="number" id="adminMinLiquidity" min="100" max="100000" value="1000" class="w-full bg-gray-800 border border-blue-700 rounded px-3 py-2 focus:border-blue-400 focus:outline-none">
+                                </div>
+                                <button id="adminSaveConfig" class="w-full bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors">
+                                    <i class="fas fa-save mr-2"></i>Save Configuration
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    
+                    
+                    <!-- Live Trading Logs -->
+                    <div class="card-bg rounded-lg p-6 border border-blue-700/40 mt-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-semibold text-blue-400">Live Trading Logs</h3>
+                            <div class="space-x-2">
+                                <button id="clearLogs" class="bg-gray-600 hover:bg-gray-700 px-3 py-1 rounded text-sm transition-colors">
+                                    <i class="fas fa-trash mr-1"></i>Clear
+                                </button>
+                                <button id="exportLogs" class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm transition-colors">
+                                    <i class="fas fa-download mr-1"></i>Export
+                                </button>
+                            </div>
+                        </div>
+                        <div id="adminTradingLogs" class="bg-black text-green-400 p-4 rounded h-64 overflow-auto font-mono text-sm">
+                            <!-- Trading logs will appear here -->
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Add User Modal -->
+    <div id="addUserModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="card-bg rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 class="text-xl font-bold mb-4 text-blue-400">Add New User</h3>
+            
+            <form id="addUserForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Username</label>
+                    <input type="text" id="newUsername" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none" required>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Email</label>
+                    <input type="email" id="newEmail" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none" required>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Password</label>
+                    <input type="password" id="newPassword" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none" required>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Role</label>
+                    <select id="newRole" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">License Expiry (Optional)</label>
+                    <input type="datetime-local" id="newLicenseExpiry" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Package Selection</label>
+                    <select id="newPackage" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                        <option value="basic">🥉 Basic Package - $50/month</option>
+                        <option value="pro">🥈 Pro Package - $150/month</option>
+                        <option value="premium">🥇 Premium Package - $500/month</option>
+                        <option value="enterprise">💎 Enterprise Package - $1,500/month</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Max Connections</label>
+                    <input type="number" id="newMaxConnections" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none" value="1" min="1" max="10">
+                </div>
+                
+                <div class="flex space-x-3">
+                    <button type="submit" class="flex-1 bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-plus mr-2"></i>Create User
+                    </button>
+                    <button type="button" id="cancelAddUser" class="flex-1 bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg transition-colors">
+                        Cancel
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div id="editUserModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="card-bg rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 class="text-xl font-bold mb-4 text-blue-400">Edit User</h3>
+            
+            <form id="editUserForm" class="space-y-4">
+                <input type="hidden" id="editUsername">
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Email</label>
+                    <input type="email" id="editEmail" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none" required>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">New Password (Leave blank to keep current)</label>
+                    <input type="password" id="editPassword" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Role</label>
+                    <select id="editRole" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Status</label>
+                    <select id="editStatus" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                        <option value="true">Active</option>
+                        <option value="false">Inactive</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">License Expiry</label>
+                    <input type="datetime-local" id="editLicenseExpiry" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Max Connections</label>
+                    <input type="number" id="editMaxConnections" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none" min="1" max="10">
+                </div>
+                
+                <div class="flex space-x-3">
+                    <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-save mr-2"></i>Update User
+                    </button>
+                    <button type="button" id="cancelEditUser" class="flex-1 bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg transition-colors">
+                        Cancel
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- JWT Management Tab -->
+    <div id="jwtTab" class="tab-content hidden">
+        <div class="card-bg rounded-lg p-6">
+            <h2 class="text-2xl font-bold mb-6 text-blue-400">JWT Secret Management</h2>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Current JWT Secret -->
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <h3 class="text-lg font-semibold mb-4 text-green-400">Current JWT Secret</h3>
+                    <div class="flex items-center space-x-2">
+                        <input type="password" id="currentJwtSecret" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm" readonly>
+                        <button id="showJwtSecret" class="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded text-sm">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button id="copyJwtSecret" class="bg-green-600 hover:bg-green-700 px-3 py-2 rounded text-sm">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-2">Current JWT secret used for token generation</p>
+                </div>
+                
+                <!-- Generate New JWT Secret -->
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <h3 class="text-lg font-semibold mb-4 text-yellow-400">Generate New Secret</h3>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-sm font-semibold mb-1 text-gray-300">Secret Length</label>
+                            <select id="jwtSecretLength" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm">
+                                <option value="32">32 characters</option>
+                                <option value="64" selected>64 characters</option>
+                                <option value="128">128 characters</option>
+                            </select>
+                        </div>
+                        <button id="generateNewJwt" class="w-full bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded text-sm transition-colors">
+                            <i class="fas fa-key mr-2"></i>Generate New JWT Secret
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-2">⚠️ This will invalidate all existing tokens</p>
+                </div>
+            </div>
+            
+            <!-- JWT Statistics -->
+            <div class="mt-6 bg-gray-800 rounded-lg p-4">
+                <h3 class="text-lg font-semibold mb-4 text-blue-400">JWT Statistics</h3>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-green-400" id="activeTokens">0</div>
+                        <div class="text-sm text-gray-400">Active Tokens</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-yellow-400" id="expiredTokens">0</div>
+                        <div class="text-sm text-gray-400">Expired Tokens</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-blue-400" id="totalTokens">0</div>
+                        <div class="text-sm text-gray-400">Total Tokens</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-purple-400" id="lastGenerated">-</div>
+                        <div class="text-sm text-gray-400">Last Generated</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bot Testing Tab -->
+    <div id="botTestTab" class="tab-content hidden">
+        <div class="card-bg rounded-lg p-6">
+            <h2 class="text-2xl font-bold mb-6 text-blue-400">Bot Testing & Monitoring</h2>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Admin Bot Access -->
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <h3 class="text-lg font-semibold mb-4 text-green-400">Admin Bot Access</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-semibold mb-2 text-gray-300">Admin Wallet Connection</label>
+                            <button id="adminConnectWallet" class="w-full bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded text-sm transition-colors">
+                                <i class="fas fa-wallet mr-2"></i>Connect Admin Wallet
+                            </button>
+                        </div>
+                        <div id="adminWalletStatus" class="hidden">
+                            <p class="text-sm text-green-400">✅ Admin wallet connected</p>
+                            <p id="adminWalletAddress" class="text-xs text-gray-400"></p>
+                        </div>
+                        <div>
+                            <button id="adminTestBot" class="w-full bg-green-600 hover:bg-green-700 px-4 py-2 rounded text-sm transition-colors">
+                                <i class="fas fa-play mr-2"></i>Test Bot Trading
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- API Status -->
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <h3 class="text-lg font-semibold mb-4 text-blue-400">API Status</h3>
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-gray-300">Pump.fun API</span>
+                            <span id="pumpApiStatus" class="text-sm px-2 py-1 rounded">Checking...</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-gray-300">Dexscreener API</span>
+                            <span id="dexApiStatus" class="text-sm px-2 py-1 rounded">Checking...</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-gray-300">Birdeye API</span>
+                            <span id="birdeyeApiStatus" class="text-sm px-2 py-1 rounded">Checking...</span>
+                        </div>
+                        <button id="testAllApis" class="w-full bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm transition-colors">
+                            <i class="fas fa-sync mr-2"></i>Test All APIs
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Live Trading Logs -->
+            <div class="mt-6 bg-gray-800 rounded-lg p-4">
+                <h3 class="text-lg font-semibold mb-4 text-yellow-400">Live Trading Logs</h3>
+                <div class="bg-black rounded p-3 h-64 overflow-y-auto">
+                    <pre id="adminTradingLogs" class="text-green-400 text-sm"></pre>
+                </div>
+                <div class="mt-3 flex space-x-2">
+                    <button id="clearLogs" class="bg-gray-600 hover:bg-gray-700 px-3 py-1 rounded text-sm">
+                        <i class="fas fa-trash mr-1"></i>Clear Logs
+                    </button>
+                    <button id="exportLogs" class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm">
+                        <i class="fas fa-download mr-1"></i>Export Logs
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit License Modal -->
+    <div id="editLicenseModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="card-bg rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 class="text-xl font-bold mb-4 text-blue-400">Edit License</h3>
+            <form id="editLicenseForm" class="space-y-4">
+                <input type="hidden" id="editLicenseUsername">
+                <input type="hidden" id="editLicenseKey">
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Package</label>
+                    <select id="editLicensePackage" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                        <option value="basic">🥉 Basic Package - $50/month</option>
+                        <option value="pro">🥈 Pro Package - $150/month</option>
+                        <option value="premium">🥇 Premium Package - $500/month</option>
+                        <option value="enterprise">💎 Enterprise Package - $1,500/month</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Daily Trading Limit</label>
+                    <input type="number" id="editDailyLimit" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Monthly Trading Limit</label>
+                    <input type="number" id="editMonthlyLimit" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Max Buy Amount (SOL)</label>
+                    <input type="number" id="editMaxBuyAmount" step="0.1" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">License Expiry</label>
+                    <input type="datetime-local" id="editLicenseExpiry" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-semibold mb-2 text-blue-300">Status</label>
+                    <select id="editLicenseStatus" class="w-full bg-gray-800 border border-blue-700 rounded px-4 py-2 focus:border-blue-400 focus:outline-none">
+                        <option value="true">Active</option>
+                        <option value="false">Inactive</option>
+                    </select>
+                </div>
+                
+                <div class="flex space-x-3">
+                    <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-save mr-2"></i>Update License
+                    </button>
+                    <button type="button" id="cancelEditLicense" class="flex-1 bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg transition-colors">
+                        Cancel
+                    </button>
+                </div>
+            </form>
+        </div>
+
+
+    <script src="/admin.js"></script>
+</body>
+</html> 

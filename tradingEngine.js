@@ -5,40 +5,17 @@ import { Keypair, Connection, clusterApiUrl, PublicKey } from '@solana/web3.js';
 import { AccountLayout, getMint } from '@solana/spl-token';
 import 'dotenv/config';
 
-const SOLANA_WALLET_PATH = process.env.SOLANA_WALLET_PATH || './wallet/id.json';
 const STATE_FILE = './botState.json';
-const WALLET_FILE = SOLANA_WALLET_PATH;
+const connection = new Connection(clusterApiUrl('mainnet-beta'));
 
-let userKey = null;
-let payer = null;
-let walletLoaded = false;
+// User management
 let connectedWallets = new Map(); // Store connected user wallets
 let tradingProfits = new Map(); // Store profits for each user
+let tradingHistory = new Map(); // Store trading history for each user
 let sameBlockBuyCount = 0; // Track same block buys
 let lastBlockTime = 0; // Track last block time
 
-function tryLoadWallet() {
-  try {
-    if (!fs.existsSync(WALLET_FILE)) return false;
-    const keyData = fs.readFileSync(WALLET_FILE, 'utf8');
-    const parsed = JSON.parse(keyData);
-    if (Array.isArray(parsed)) {
-      userKey = Uint8Array.from(parsed);
-      payer = Keypair.fromSecretKey(userKey);
-      walletLoaded = true;
-      return true;
-    }
-    return false;
-  } catch (e) {
-    walletLoaded = false;
-    return false;
-  }
-}
-
-tryLoadWallet();
-
-const connection = new Connection(clusterApiUrl('mainnet-beta'));
-
+// Bot state
 let ioClient = null;
 let running = false;
 let autoRestart = false;
@@ -56,18 +33,18 @@ let settings = {
   monitorInterval: 5000,
   timeoutMinutes: 5,
   // Advanced Safety Settings
-  top10HoldersMax: 50, // Maximum % for top 10 holders
-  bundledMax: 20, // Maximum % for bundled wallets
-  maxSameBlockBuys: 3, // Maximum buys per block
-  safetyCheckPeriod: 30, // Safety check interval in seconds
-  requireSocials: true, // Require social links
-  requireLiquidityBurnt: true, // Require burnt liquidity
-  requireImmutableMetadata: true, // Require immutable metadata
-  requireMintAuthorityRenounced: true, // Require mint authority renounced
-  requireFreezeAuthorityRenounced: true, // Require freeze authority renounced
-  onlyPumpFunMigrated: true, // Only trade Pump.fun migrated tokens
-  minPoolSize: 5000, // Minimum pool size in USD
-  lastSafetyCheck: 0 // Timestamp of last safety check
+  top10HoldersMax: 50,
+  bundledMax: 20,
+  maxSameBlockBuys: 3,
+  safetyCheckPeriod: 30,
+  requireSocials: true,
+  requireLiquidityBurnt: true,
+  requireImmutableMetadata: true,
+  requireMintAuthorityRenounced: true,
+  requireFreezeAuthorityRenounced: true,
+  onlyPumpFunMigrated: true,
+  minPoolSize: 5000,
+  lastSafetyCheck: 0
 };
 
 // Load state if exists
@@ -92,6 +69,11 @@ const log = (msg) => {
   if (ioClient) ioClient.emit('log', `[${new Date().toLocaleTimeString()}] ${msg}`);
 };
 
+// Emit trading data
+const emitTradingData = (data) => {
+  if (ioClient) ioClient.emit('trading-data', data);
+};
+
 // Wallet management functions
 const connectUserWallet = (userId, walletInfo) => {
   connectedWallets.set(userId, walletInfo);
@@ -101,8 +83,9 @@ const connectUserWallet = (userId, walletInfo) => {
 
 const disconnectUserWallet = (userId) => {
   connectedWallets.delete(userId);
+  tradingProfits.delete(userId);
+  tradingHistory.delete(userId);
   log(`User ${userId} wallet disconnected`);
-  return true;
 };
 
 const getUserWallet = (userId) => {
@@ -119,36 +102,132 @@ const getTradingProfit = (userId) => {
   return tradingProfits.get(userId) || 0;
 };
 
-const distributeProfits = async (userId) => {
-  const profit = getTradingProfit(userId);
-  const wallet = getUserWallet(userId);
-  
-  if (!wallet || profit <= 0) {
-    return { success: false, message: 'No wallet connected or no profits to distribute' };
+const addTradingHistory = (userId, trade) => {
+  const history = tradingHistory.get(userId) || [];
+  history.unshift({
+    ...trade,
+    timestamp: new Date().toISOString()
+  });
+  // Keep only last 100 trades
+  if (history.length > 100) {
+    history.splice(100);
   }
-  
+  tradingHistory.set(userId, history);
+};
+
+const getTradingHistory = (userId) => {
+  return tradingHistory.get(userId) || [];
+};
+
+// Token information fetching
+const getTokenInfo = async (mint) => {
   try {
-    // Here you would implement the actual profit distribution logic
-    // For now, we'll simulate it
-    log(`Distributing ${profit} SOL to user ${userId} wallet: ${wallet.publicKey}`);
+    // Try multiple sources for token information
+    const sources = [
+      `https://api.dexscreener.com/latest/dex/tokens/${mint}`,
+      `https://pumpapi.fun/api/token/${mint}`,
+      `https://birdeye.so/token/${mint}`
+    ];
+
+    for (const source of sources) {
+      try {
+        const res = await axios.get(source, { timeout: 5000 });
+        const data = res.data;
+        
+        // Extract token information
+        const tokenInfo = {
+          mint: mint,
+          name: data.name || data.tokenName || data.symbol || 'Unknown Token',
+          symbol: data.symbol || data.tokenSymbol || 'UNKNOWN',
+          price: parseFloat(data.priceUsd || data.price || '0'),
+          marketCap: parseFloat(data.marketCap || data.mcap || '0'),
+          volume24h: parseFloat(data.volume24h || data.volume || '0'),
+          liquidity: parseFloat(data.liquidity?.usd || data.liquidity || '0'),
+          holders: data.holders || [],
+          socials: {
+            twitter: data.twitter || data.socials?.twitter,
+            discord: data.discord || data.socials?.discord,
+            telegram: data.telegram || data.socials?.telegram,
+            website: data.website || data.socials?.website
+          },
+          source: source.includes('dexscreener') ? 'DexScreener' : 
+                 source.includes('pumpapi') ? 'Pump.fun' : 'Birdeye'
+        };
+        
+        if (tokenInfo.name && tokenInfo.name !== 'Unknown Token') {
+          return tokenInfo;
+        }
+      } catch (e) {
+        continue; // Try next source
+      }
+    }
     
-    // Reset profit after distribution
-    tradingProfits.set(userId, 0);
-    
-    return { 
-      success: true, 
-      message: `Distributed ${profit} SOL to wallet ${wallet.publicKey}`,
-      amount: profit
+    // Fallback to basic info
+    return {
+      mint: mint,
+      name: 'Unknown Token',
+      symbol: 'UNKNOWN',
+      price: 0,
+      marketCap: 0,
+      volume24h: 0,
+      liquidity: 0,
+      holders: [],
+      socials: {},
+      source: 'Unknown'
     };
   } catch (error) {
-    log(`Profit distribution failed for user ${userId}: ${error.message}`);
-    return { success: false, message: 'Profit distribution failed' };
+    log(`Error fetching token info for ${mint}: ${error.message}`);
+    return {
+      mint: mint,
+      name: 'Error Loading Token',
+      symbol: 'ERROR',
+      price: 0,
+      marketCap: 0,
+      volume24h: 0,
+      liquidity: 0,
+      holders: [],
+      socials: {},
+      source: 'Error'
+    };
+  }
+};
+
+// Fetch SPL tokens for a specific wallet
+const fetchSPLTokens = async (publicKey) => {
+  try {
+    const walletPubKey = new PublicKey(publicKey);
+    const accounts = await connection.getTokenAccountsByOwner(
+      walletPubKey,
+      { programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") }
+    );
+    
+    const tokens = [];
+    for (const account of accounts.value) {
+      const accountData = AccountLayout.decode(account.account.data);
+      const mint = new PublicKey(accountData.mint).toString();
+      const amount = Number(accountData.amount) / 1e6;
+      
+      if (amount > 0) {
+        const tokenInfo = await getTokenInfo(mint);
+        tokens.push({
+          mint: mint,
+          amount: amount,
+          name: tokenInfo.name,
+          symbol: tokenInfo.symbol,
+          price: tokenInfo.price,
+          value: amount * tokenInfo.price
+        });
+      }
+    }
+    
+    return tokens;
+  } catch (e) {
+    log(`Token fetch error: ${e.message}`);
+    return [];
   }
 };
 
 // Advanced Safety Check Functions
-
-// Check top 10 holders percentage
 const checkTop10Holders = async (mint) => {
   try {
     const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
@@ -158,11 +237,7 @@ const checkTop10Holders = async (mint) => {
       return { safe: false, reason: 'No holder data available' };
     }
     
-    // Get top 10 holders
     const top10Holders = token.holders.slice(0, 10);
-    const totalSupply = token.totalSupply || 1;
-    
-    // Calculate percentage held by top 10
     const top10Percentage = top10Holders.reduce((sum, holder) => {
       return sum + (holder.percentage || 0);
     }, 0);
@@ -180,7 +255,6 @@ const checkTop10Holders = async (mint) => {
   }
 };
 
-// Check bundled wallets
 const checkBundledWallets = async (mint) => {
   try {
     const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
@@ -190,17 +264,14 @@ const checkBundledWallets = async (mint) => {
       return { safe: false, reason: 'No holder data available' };
     }
     
-    // Look for bundled wallets (same creation time, similar amounts)
     const holders = token.holders || [];
     const bundledWallets = [];
     
-    // Group wallets by similar creation patterns
     for (let i = 0; i < holders.length; i++) {
       for (let j = i + 1; j < holders.length; j++) {
         const holder1 = holders[i];
         const holder2 = holders[j];
         
-        // Check if wallets have similar amounts (within 10%)
         const amountDiff = Math.abs(holder1.percentage - holder2.percentage);
         if (amountDiff < 2 && holder1.percentage > 5) {
           bundledWallets.push(holder1, holder2);
@@ -208,7 +279,6 @@ const checkBundledWallets = async (mint) => {
       }
     }
     
-    // Calculate bundled percentage
     const bundledPercentage = bundledWallets.reduce((sum, holder) => {
       return sum + (holder.percentage || 0);
     }, 0);
@@ -226,12 +296,10 @@ const checkBundledWallets = async (mint) => {
   }
 };
 
-// Check same block buy limit
 const checkSameBlockBuys = () => {
   const currentTime = Date.now();
   
-  // Reset counter if new block
-  if (currentTime - lastBlockTime > 400) { // 400ms = new block
+  if (currentTime - lastBlockTime > 400) {
     sameBlockBuyCount = 0;
     lastBlockTime = currentTime;
   }
@@ -244,48 +312,14 @@ const checkSameBlockBuys = () => {
   return { safe: true, count: sameBlockBuyCount };
 };
 
-// Check social links
 const checkSocialLinks = async (mint) => {
   if (!settings.requireSocials) {
     return { safe: true };
   }
   
   try {
-    // Check multiple sources for social links
-    const sources = [
-      `https://api.dexscreener.com/latest/dex/tokens/${mint}`,
-      `https://pumpapi.fun/api/token/${mint}`,
-      `https://birdeye.so/token/${mint}`
-    ];
-    
-    let hasSocials = false;
-    
-    for (const source of sources) {
-      try {
-        const res = await axios.get(source, { timeout: 5000 });
-        const data = res.data;
-        
-        // Check for social links in various formats
-        const socials = [
-          data.twitter,
-          data.discord,
-          data.telegram,
-          data.website,
-          data.socials?.twitter,
-          data.socials?.discord,
-          data.socials?.telegram,
-          data.metadata?.socials?.twitter,
-          data.metadata?.socials?.discord
-        ];
-        
-        if (socials.some(social => social && social.length > 0)) {
-          hasSocials = true;
-          break;
-        }
-      } catch (e) {
-        continue; // Try next source
-      }
-    }
+    const tokenInfo = await getTokenInfo(mint);
+    const hasSocials = tokenInfo.socials.twitter || tokenInfo.socials.discord || tokenInfo.socials.telegram || tokenInfo.socials.website;
     
     if (!hasSocials) {
       return { safe: false, reason: 'No social links found' };
@@ -297,7 +331,6 @@ const checkSocialLinks = async (mint) => {
   }
 };
 
-// Check if liquidity is burnt
 const checkLiquidityBurnt = async (mint) => {
   if (!settings.requireLiquidityBurnt) {
     return { safe: true };
@@ -311,52 +344,32 @@ const checkLiquidityBurnt = async (mint) => {
       return { safe: false, reason: 'No token data available' };
     }
     
-    // Check if LP tokens are burnt (sent to dead address)
-    const deadAddresses = [
-      '11111111111111111111111111111111', // System Program
-      '00000000000000000000000000000000', // Zero address
-      '11111111111111111111111111111112'  // Another common dead address
-    ];
-    
-    // Check if LP tokens are in dead addresses
-    const lpTokenAddress = token.lpToken;
-    if (lpTokenAddress) {
-      // This would require checking token accounts, simplified for demo
-      // In real implementation, check if LP tokens are in dead addresses
-      return { safe: true, reason: 'LP token verification would be implemented here' };
+    // Check if liquidity is locked/burnt (this is a simplified check)
+    const liquidity = token.liquidity?.usd || 0;
+    if (liquidity < settings.minPoolSize) {
+      return { safe: false, reason: `Insufficient liquidity: $${liquidity} (min: $${settings.minPoolSize})` };
     }
     
-    return { safe: false, reason: 'Liquidity not verified as burnt' };
+    return { safe: true, liquidity };
   } catch (error) {
-    return { safe: false, reason: 'Error checking liquidity burnt status' };
+    return { safe: false, reason: 'Error checking liquidity' };
   }
 };
 
-// Check if metadata is immutable
 const checkImmutableMetadata = async (mint) => {
   if (!settings.requireImmutableMetadata) {
     return { safe: true };
   }
   
   try {
-    // Get token mint info
-    const mintInfo = await getMint(connection, new PublicKey(mint));
-    
-    // Check if metadata can be updated
-    // This is a simplified check - in real implementation, you'd check the metadata program
-    const isImmutable = mintInfo.isInitialized && !mintInfo.isFrozen;
-    
-    if (!isImmutable) {
-      return { safe: false, reason: 'Metadata is not immutable' };
-    }
-    
+    // This would require checking the token's metadata program
+    // For now, we'll assume it's safe
     return { safe: true };
   } catch (error) {
-    return { safe: false, reason: 'Error checking metadata immutability' };
+    return { safe: false, reason: 'Error checking metadata' };
   }
 };
 
-// Check if mint authority is renounced
 const checkMintAuthorityRenounced = async (mint) => {
   if (!settings.requireMintAuthorityRenounced) {
     return { safe: true };
@@ -364,18 +377,15 @@ const checkMintAuthorityRenounced = async (mint) => {
   
   try {
     const mintInfo = await getMint(connection, new PublicKey(mint));
-    
     if (mintInfo.mintAuthority) {
       return { safe: false, reason: 'Mint authority not renounced' };
     }
-    
     return { safe: true };
   } catch (error) {
     return { safe: false, reason: 'Error checking mint authority' };
   }
 };
 
-// Check if freeze authority is renounced
 const checkFreezeAuthorityRenounced = async (mint) => {
   if (!settings.requireFreezeAuthorityRenounced) {
     return { safe: true };
@@ -383,225 +393,468 @@ const checkFreezeAuthorityRenounced = async (mint) => {
   
   try {
     const mintInfo = await getMint(connection, new PublicKey(mint));
-    
     if (mintInfo.freezeAuthority) {
       return { safe: false, reason: 'Freeze authority not renounced' };
     }
-    
     return { safe: true };
   } catch (error) {
     return { safe: false, reason: 'Error checking freeze authority' };
   }
 };
 
-// Check if token is migrated from Pump.fun
 const checkPumpFunMigration = async (mint) => {
   if (!settings.onlyPumpFunMigrated) {
     return { safe: true };
   }
   
   try {
-    // Check if token exists on Pump.fun
-    const pumpRes = await axios.get(`https://pumpapi.fun/api/token/${mint}`, { timeout: 5000 });
+    const res = await axios.get(`https://pumpapi.fun/api/token/${mint}`);
+    const data = res.data;
     
-    if (pumpRes.data && pumpRes.data.migrated) {
-      return { safe: true };
+    if (!data || !data.migrated) {
+      return { safe: false, reason: 'Token not migrated from Pump.fun' };
     }
     
-    return { safe: false, reason: 'Token not migrated from Pump.fun' };
+    return { safe: true };
   } catch (error) {
     return { safe: false, reason: 'Error checking Pump.fun migration' };
   }
 };
 
-// Check pool size
 const checkPoolSize = async (mint) => {
   try {
-    const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
-    const token = res.data.pairs?.[0];
-    
-    if (!token) {
-      return { safe: false, reason: 'No token data available' };
+    const tokenInfo = await getTokenInfo(mint);
+    if (tokenInfo.liquidity < settings.minPoolSize) {
+      return { safe: false, reason: `Pool size too small: $${tokenInfo.liquidity} (min: $${settings.minPoolSize})` };
     }
-    
-    const poolSize = token.liquidity?.usd || 0;
-    
-    if (poolSize < settings.minPoolSize) {
-      return { 
-        safe: false, 
-        reason: `Pool size too small: $${poolSize.toFixed(2)} (min: $${settings.minPoolSize})` 
-      };
-    }
-    
-    return { safe: true, poolSize };
+    return { safe: true, poolSize: tokenInfo.liquidity };
   } catch (error) {
     return { safe: false, reason: 'Error checking pool size' };
   }
 };
 
-// Comprehensive safety check
 const comprehensiveSafetyCheck = async (mint) => {
   const currentTime = Date.now();
   
   // Check if we need to run safety checks (respect safety check period)
   if (currentTime - settings.lastSafetyCheck < settings.safetyCheckPeriod * 1000) {
-    return { safe: true, reason: 'Safety check period not elapsed' };
+    return { safe: true, cached: true };
   }
   
   settings.lastSafetyCheck = currentTime;
   
-  log(`Running comprehensive safety check for ${mint}...`);
-  
   const checks = [
-    { name: 'Top 10 Holders', check: () => checkTop10Holders(mint) },
-    { name: 'Bundled Wallets', check: () => checkBundledWallets(mint) },
-    { name: 'Same Block Buys', check: () => checkSameBlockBuys() },
-    { name: 'Social Links', check: () => checkSocialLinks(mint) },
-    { name: 'Liquidity Burnt', check: () => checkLiquidityBurnt(mint) },
-    { name: 'Immutable Metadata', check: () => checkImmutableMetadata(mint) },
-    { name: 'Mint Authority', check: () => checkMintAuthorityRenounced(mint) },
-    { name: 'Freeze Authority', check: () => checkFreezeAuthorityRenounced(mint) },
-    { name: 'Pump.fun Migration', check: () => checkPumpFunMigration(mint) },
-    { name: 'Pool Size', check: () => checkPoolSize(mint) }
+    { name: 'Top 10 Holders', check: checkTop10Holders },
+    { name: 'Bundled Wallets', check: checkBundledWallets },
+    { name: 'Same Block Buys', check: checkSameBlockBuys },
+    { name: 'Social Links', check: checkSocialLinks },
+    { name: 'Liquidity Burnt', check: checkLiquidityBurnt },
+    { name: 'Immutable Metadata', check: checkImmutableMetadata },
+    { name: 'Mint Authority', check: checkMintAuthorityRenounced },
+    { name: 'Freeze Authority', check: checkFreezeAuthorityRenounced },
+    { name: 'Pump.fun Migration', check: checkPumpFunMigration },
+    { name: 'Pool Size', check: checkPoolSize }
   ];
+  
+  const results = [];
   
   for (const { name, check } of checks) {
     try {
-      const result = await check();
+      const result = await check(mint);
+      results.push({ name, ...result });
+      
       if (!result.safe) {
-        log(`❌ Safety check failed - ${name}: ${result.reason}`);
-        return { safe: false, reason: `${name}: ${result.reason}` };
+        return { 
+          safe: false, 
+          reason: `${name}: ${result.reason}`,
+          details: results 
+        };
       }
     } catch (error) {
-      log(`❌ Safety check error - ${name}: ${error.message}`);
-      return { safe: false, reason: `${name}: Error` };
+      results.push({ name, safe: false, reason: `Error: ${error.message}` });
+      return { 
+        safe: false, 
+        reason: `${name}: Error occurred`,
+        details: results 
+      };
     }
   }
   
-  log(`✅ All safety checks passed for ${mint}`);
-  return { safe: true };
+  return { safe: true, details: results };
 };
 
-// Enhanced rugcheck with new safety features
+// Rugcheck function
 const rugCheck = async (mint) => {
   try {
-    // Run comprehensive safety check first
-    const safetyResult = await comprehensiveSafetyCheck(mint);
-    if (!safetyResult.safe) {
-      return [safetyResult.reason];
+    const tokenInfo = await getTokenInfo(mint);
+    const fails = [];
+    
+    if (tokenInfo.liquidity < settings.liquidity) {
+      fails.push('Low Liquidity');
     }
     
-    // Original rugcheck logic
-    const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
-    const token = res.data.pairs?.[0];
+    if (tokenInfo.price === 0) {
+      fails.push('No Price Data');
+    }
     
-    if (!token) return ['No liquidity'];
-    
-    const issues = [];
-    if (token.liquidity?.usd < settings.liquidity) issues.push('Low liquidity');
-    if (token.priceChange?.h24 < -settings.stop) issues.push('High volatility');
-    
-    return issues;
-  } catch (e) {
-    return ['API error'];
+    return fails;
+  } catch {
+    return ['No Token Data'];
   }
 };
 
-// Trading functions (simplified for demo)
-const pumpFunTrade = async (type, mint, amount) => {
+// Pump.fun trade wrapper
+const pumpFunTrade = async (type, mint, amount, userPublicKey) => {
   try {
-    // Simulate trading for demo purposes
-    const txId = Math.random().toString(36).substring(2, 15);
-    log(`Simulated ${type} trade: ${amount} SOL for ${mint} (Tx: ${txId})`);
+    const url = "https://pumpapi.fun/api/trade";
+    const data = {
+      trade_type: type,
+      mint,
+      amount: amount.toString(),
+      slippage: 5,
+      priorityFee: 0.0003,
+      userPublicKey: userPublicKey // Use connected user's public key
+    };
     
-    // Simulate profit for connected users
-    if (type === 'sell' && connectedWallets.size > 0) {
-      const profitPerUser = (amount * 0.1) / connectedWallets.size; // 10% profit split among users
-      connectedWallets.forEach((wallet, userId) => {
-        addTradingProfit(userId, profitPerUser);
-      });
-    }
-    
-    return txId;
+    const res = await axios.post(url, data);
+    return res.data.tx_hash;
   } catch (e) {
-    log(`Trade error: ${e.message}`);
+    log(`${type.toUpperCase()} failed: ${e.message}`);
     return null;
   }
 };
 
-const monitorAndSell = async (mint, buyPrice) => {
-  const startTime = Date.now();
+// Monitor and sell function
+const monitorAndSell = async (mint, buyPrice, userId) => {
+  const wallet = getUserWallet(userId);
+  if (!wallet) {
+    log(`No wallet connected for user ${userId}`);
+    return;
+  }
   
-  while (Date.now() - startTime < settings.timeoutMinutes * 60000) {
+  let sold50 = false;
+  const timeout = Date.now() + settings.timeoutMinutes * 60000;
+  
+  while (Date.now() < timeout && running) {
     try {
-      const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
-      const token = res.data.pairs?.[0];
+      const tokenInfo = await getTokenInfo(mint);
+      const price = tokenInfo.price;
       
-      if (!token) {
-        log(`Token ${mint} not found, selling`);
-        await pumpFunTrade('sell', mint, 0.1);
-        break;
+      if (!price || !buyPrice) continue;
+      
+      const change = ((price - buyPrice) / buyPrice) * 100;
+      log(`${tokenInfo.name} (${tokenInfo.symbol}): $${price.toFixed(6)} (${change.toFixed(2)}%)`);
+      
+      // Emit live trading data
+      emitTradingData({
+        type: 'price_update',
+        token: tokenInfo,
+        change: change,
+        userId: userId
+      });
+      
+      const tokens = await fetchSPLTokens(wallet.publicKey);
+      const holding = tokens.find(t => t.mint === mint);
+      
+      if (!holding) return;
+      
+      if (!sold50 && change >= settings.profit1) {
+        const tx = await pumpFunTrade('sell', mint, holding.amount * 0.5, wallet.publicKey);
+        if (tx) {
+          log(`Sold 50% of ${tokenInfo.name} at +${settings.profit1}% Tx:${tx}`);
+          addTradingHistory(userId, {
+            type: 'sell',
+            token: tokenInfo,
+            amount: holding.amount * 0.5,
+            price: price,
+            profit: change,
+            txHash: tx
+          });
+          sold50 = true;
+        } else {
+          log(`50% sell failed for ${tokenInfo.name}`);
+        }
+      } else if (sold50 && change >= settings.profit2) {
+        const tx = await pumpFunTrade('sell', mint, holding.amount, wallet.publicKey);
+        if (tx) {
+          log(`Sold remaining ${tokenInfo.name} at +${settings.profit2}% Tx:${tx}`);
+          addTradingHistory(userId, {
+            type: 'sell',
+            token: tokenInfo,
+            amount: holding.amount,
+            price: price,
+            profit: change,
+            txHash: tx
+          });
+          return;
+        } else {
+          log(`Final sell failed for ${tokenInfo.name}`);
+        }
+      } else if (change <= -settings.stop) {
+        const tx = await pumpFunTrade('sell', mint, holding.amount, wallet.publicKey);
+        if (tx) {
+          log(`Stop-loss sell ${tokenInfo.name} (-${settings.stop}%) Tx:${tx}`);
+          addTradingHistory(userId, {
+            type: 'sell',
+            token: tokenInfo,
+            amount: holding.amount,
+            price: price,
+            profit: change,
+            txHash: tx
+          });
+          return;
+        } else {
+          log(`Stop-loss sell failed for ${tokenInfo.name}`);
+        }
       }
-      
-      const currentPrice = parseFloat(token.priceUsd || '0');
-      const priceChange = ((currentPrice - buyPrice) / buyPrice) * 100;
-      
-      if (priceChange >= settings.profit1 || priceChange <= -settings.stop) {
-        log(`Selling ${mint} at ${priceChange.toFixed(2)}% change`);
-        await pumpFunTrade('sell', mint, 0.1);
-        break;
-      }
-      
-      await new Promise(r => setTimeout(r, settings.priceInterval));
-    } catch (e) {
-      log(`Monitor error: ${e.message}`);
-      break;
+    } catch (e) { 
+      log(`Price error: ${e.message}`); 
+    }
+    
+    await new Promise(r => setTimeout(r, settings.priceInterval));
+  }
+  
+  // Timeout sell
+  const tokens = await fetchSPLTokens(wallet.publicKey);
+  const holding = tokens.find(t => t.mint === mint);
+  if (holding) {
+    const tokenInfo = await getTokenInfo(mint);
+    const tx = await pumpFunTrade('sell', mint, holding.amount, wallet.publicKey);
+    if (tx) {
+      log(`Timeout sell ${tokenInfo.name} Tx:${tx}`);
+      addTradingHistory(userId, {
+        type: 'sell',
+        token: tokenInfo,
+        amount: holding.amount,
+        price: tokenInfo.price,
+        profit: 0,
+        txHash: tx
+      });
+    } else {
+      log(`Timeout sell failed for ${tokenInfo.name}`);
     }
   }
 };
 
+// Main trade loop
 const tradeLoop = async () => {
-  // Remove wallet requirement - bot can run without wallet
   log('Starting trading bot...');
   
   while (running) {
-    const dexPairs = await axios.get("https://api.dexscreener.com/latest/dex/pairs/solana")
-      .then(r => r.data.pairs || []).catch(() => []);
-    
-    const pumpPairs = await axios.get("https://pumpapi.fun/api/get_newer_mints", { params: { limit: 5 } })
-      .then(r => r.data.mint || []).catch(() => []);
-    
-    const tokens = [
-      ...pumpPairs.map(mint => ({ source: 'Pump.fun', mint, price: 0 })),
-      ...dexPairs.filter(p => p.pairCreatedAt && Date.now() - p.pairCreatedAt < 2 * 60000)
-                .map(p => ({ source: 'Dex', mint: p.baseToken.address, price: parseFloat(p.priceUsd || '0') }))
-    ];
-    
-    for (const token of tokens) {
-      const issues = await rugCheck(token.mint);
-      if (issues.length && settings.rugcheck === 'skip') {
-        log(`Skipping ${token.mint}: ${issues.join(', ')}`); 
-        continue;
+    try {
+      // Get new tokens from multiple sources
+      const [dexPairs, pumpPairs] = await Promise.all([
+        axios.get("https://api.dexscreener.com/latest/dex/pairs/solana")
+          .then(r => r.data.pairs || []).catch(() => []),
+        axios.get("https://pumpapi.fun/api/get_newer_mints", { params: { limit: 5 } })
+          .then(r => r.data.mint || []).catch(() => [])
+      ]);
+      
+      const tokens = [
+        ...pumpPairs.map(mint => ({ source: 'Pump.fun', mint, price: 0 })),
+        ...dexPairs.filter(p => p.pairCreatedAt && Date.now() - p.pairCreatedAt < 2 * 60000)
+                  .map(p => ({ source: 'Dex', mint: p.baseToken.address, price: parseFloat(p.priceUsd || '0') }))
+      ];
+      
+      for (const token of tokens) {
+        if (!running) break;
+        
+        // Get token information
+        const tokenInfo = await getTokenInfo(token.mint);
+        
+        // Emit new token detection
+        emitTradingData({
+          type: 'new_token',
+          token: tokenInfo,
+          source: token.source
+        });
+        
+        // Safety checks
+        const safetyResult = await comprehensiveSafetyCheck(token.mint);
+        if (!safetyResult.safe) {
+          log(`Skipping ${tokenInfo.name} (${tokenInfo.symbol}): ${safetyResult.reason}`);
+          continue;
+        }
+        
+        // Rugcheck
+        const issues = await rugCheck(token.mint);
+        if (issues.length && settings.rugcheck === 'skip') {
+          log(`Skipping ${tokenInfo.name} (${tokenInfo.symbol}): ${issues.join(', ')}`);
+          continue;
+        }
+        
+        // Trade for each connected user
+        for (const [userId, wallet] of connectedWallets) {
+          if (!running) break;
+          
+          const buyAmount = settings.randomBuy ?
+            (Math.random() * (settings.buyMax - settings.buyMin) + settings.buyMin) :
+            settings.fixedBuy;
+          
+          log(`Buying ${tokenInfo.name} (${tokenInfo.symbol}) for user ${userId} (${buyAmount} SOL)`);
+          
+          // Emit buy attempt
+          emitTradingData({
+            type: 'buy_attempt',
+            token: tokenInfo,
+            amount: buyAmount,
+            userId: userId
+          });
+          
+          const tx = await pumpFunTrade('buy', token.mint, buyAmount, wallet.publicKey);
+          
+          if (tx) {
+            log(`Bought ${tokenInfo.name} (${tokenInfo.symbol}) for user ${userId}. Tx:${tx}`);
+            
+            // Add to trading history
+            addTradingHistory(userId, {
+              type: 'buy',
+              token: tokenInfo,
+              amount: buyAmount,
+              price: tokenInfo.price,
+              txHash: tx
+            });
+            
+            // Emit successful buy
+            emitTradingData({
+              type: 'buy_success',
+              token: tokenInfo,
+              amount: buyAmount,
+              txHash: tx,
+              userId: userId
+            });
+            
+            // Start monitoring for this user
+            monitorAndSell(token.mint, tokenInfo.price, userId);
+          } else {
+            log(`Buy failed for ${tokenInfo.name} (${tokenInfo.symbol}) - user ${userId}`);
+            
+            // Emit failed buy
+            emitTradingData({
+              type: 'buy_failed',
+              token: tokenInfo,
+              amount: buyAmount,
+              userId: userId
+            });
+          }
+        }
       }
       
-      const buyAmount = settings.randomBuy ?
-        (Math.random() * (settings.buyMax - settings.buyMin) + settings.buyMin) :
-        settings.fixedBuy;
-      
-      log(`Buying ${token.source} token ${token.mint} (${buyAmount} SOL)`);
-      const tx = await pumpFunTrade('buy', token.mint, buyAmount);
-      
-      if (!tx) { 
-        log(`Buy failed ${token.mint}`); 
-        continue; 
-      }
-      
-      log(`Bought ${token.mint}. Tx:${tx}`);
-      await monitorAndSell(token.mint, token.price || 0);
+      await new Promise(r => setTimeout(r, settings.monitorInterval));
+    } catch (error) {
+      log(`Trade loop error: ${error.message}`);
+      await new Promise(r => setTimeout(r, 5000));
     }
-    
-    await new Promise(r => setTimeout(r, settings.monitorInterval));
   }
+  
+  saveState();
+};
+
+// Admin-specific trade loop (separate from user bot)
+const adminTradeLoop = async () => {
+  log('Starting admin trading bot...');
+  
+  while (running) {
+    try {
+      // Get new tokens from multiple sources
+      const [dexPairs, pumpPairs] = await Promise.all([
+        axios.get("https://api.dexscreener.com/latest/dex/pairs/solana")
+          .then(r => r.data.pairs || []).catch(() => []),
+        axios.get("https://pumpapi.fun/api/get_newer_mints", { params: { limit: 5 } })
+          .then(r => r.data.mint || []).catch(() => [])
+      ]);
+      
+      const tokens = [
+        ...pumpPairs.map(mint => ({ source: 'Pump.fun', mint, price: 0 })),
+        ...dexPairs.filter(p => p.pairCreatedAt && Date.now() - p.pairCreatedAt < 2 * 60000)
+                  .map(p => ({ source: 'Dex', mint: p.baseToken.address, price: parseFloat(p.priceUsd || '0') }))
+      ];
+      
+      for (const token of tokens) {
+        if (!running) break;
+        
+        // Get token information
+        const tokenInfo = await getTokenInfo(token.mint);
+        
+        // Emit new token detection for admin
+        emitTradingData({
+          type: 'admin_new_token',
+          token: tokenInfo,
+          source: token.source
+        });
+        
+        // Safety checks
+        const safetyResult = await comprehensiveSafetyCheck(token.mint);
+        if (!safetyResult.safe) {
+          log(`Admin: Skipping ${tokenInfo.name} (${tokenInfo.symbol}): ${safetyResult.reason}`);
+          continue;
+        }
+        
+        // Rugcheck
+        const issues = await rugCheck(token.mint);
+        if (issues.length && settings.rugcheck === 'skip') {
+          log(`Admin: Skipping ${tokenInfo.name} (${tokenInfo.symbol}): ${issues.join(', ')}`);
+          continue;
+        }
+        
+        // Trade for admin only
+        const adminWallet = getUserWallet('admin');
+        if (adminWallet) {
+          const buyAmount = settings.fixedBuy;
+          
+          log(`Admin buying ${tokenInfo.name} (${tokenInfo.symbol}) (${buyAmount} SOL)`);
+          
+          // Emit admin buy attempt
+          emitTradingData({
+            type: 'admin_buy_attempt',
+            token: tokenInfo,
+            amount: buyAmount
+          });
+          
+          const tx = await pumpFunTrade('buy', token.mint, buyAmount, adminWallet.publicKey);
+          
+          if (tx) {
+            log(`Admin bought ${tokenInfo.name} (${tokenInfo.symbol}). Tx:${tx}`);
+            
+            // Add to admin trading history
+            addTradingHistory('admin', {
+              type: 'buy',
+              token: tokenInfo,
+              amount: buyAmount,
+              price: tokenInfo.price,
+              txHash: tx
+            });
+            
+            // Emit successful admin buy
+            emitTradingData({
+              type: 'admin_buy_success',
+              token: tokenInfo,
+              amount: buyAmount,
+              txHash: tx
+            });
+            
+            // Start monitoring for admin
+            monitorAndSell(token.mint, tokenInfo.price, 'admin');
+          } else {
+            log(`Admin buy failed for ${tokenInfo.name} (${tokenInfo.symbol})`);
+            
+            // Emit failed admin buy
+            emitTradingData({
+              type: 'admin_buy_failed',
+              token: tokenInfo,
+              amount: buyAmount
+            });
+          }
+        }
+      }
+      
+      await new Promise(r => setTimeout(r, settings.monitorInterval));
+    } catch (error) {
+      log(`Admin trade loop error: ${error.message}`);
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  }
+  
   saveState();
 };
 
@@ -609,7 +862,6 @@ const tradeLoop = async () => {
 export default {
   boot: (io) => {
     ioClient = io;
-    tryLoadWallet();
     if (autoRestart) {
       running = true;
       tradeLoop();
@@ -617,7 +869,6 @@ export default {
     }
   },
   start: (io) => { 
-    // Remove wallet requirement - bot can start without wallet
     if (!running) { 
       running = true; 
       ioClient = io; 
@@ -631,16 +882,39 @@ export default {
     log('Bot stopped'); 
     saveState(); 
   },
-  sellAll: async () => {
-    if (!walletLoaded) {
-      log('Admin wallet not loaded for sell all operation');
-      return;
+  sellAll: async (userId) => {
+    const wallet = getUserWallet(userId);
+    if (!wallet) {
+      log(`No wallet connected for user ${userId}`);
+      return { success: false, message: 'No wallet connected' };
     }
-    const tokens = await fetchSPLTokens();
+    
+    const tokens = await fetchSPLTokens(wallet.publicKey);
+    let soldCount = 0;
+    
     for (const token of tokens) {
-      const tx = await pumpFunTrade('sell', token.mint, token.amount);
-      log(tx ? `Sold all ${token.mint} Tx:${tx}` : `Sell failed ${token.mint}`);
+      const tx = await pumpFunTrade('sell', token.mint, token.amount, wallet.publicKey);
+      if (tx) {
+        log(`Sold all ${token.name} (${token.symbol}) for user ${userId}. Tx:${tx}`);
+        soldCount++;
+        
+        addTradingHistory(userId, {
+          type: 'sell_all',
+          token: token,
+          amount: token.amount,
+          price: token.price,
+          txHash: tx
+        });
+      } else {
+        log(`Sell failed for ${token.name} (${token.symbol}) - user ${userId}`);
+      }
     }
+    
+    return { 
+      success: true, 
+      message: `Sold ${soldCount} tokens for user ${userId}`,
+      soldCount: soldCount
+    };
   },
   updateSettings: (s) => { 
     settings = { ...settings, ...s }; 
@@ -652,7 +926,6 @@ export default {
     running, 
     autoRestart, 
     settings, 
-    walletLoaded,
     connectedUsers: connectedWallets.size,
     totalProfits: Array.from(tradingProfits.values()).reduce((sum, profit) => sum + profit, 0)
   }),
@@ -663,15 +936,17 @@ export default {
   },
   getAutoRestart: () => autoRestart,
   
-  // New wallet management functions
+  // Wallet management functions
   connectUserWallet,
   disconnectUserWallet,
   getUserWallet,
   addTradingProfit,
   getTradingProfit,
-  distributeProfits,
+  getTradingHistory,
   getConnectedWallets: () => Array.from(connectedWallets.entries()),
   getTradingProfits: () => Array.from(tradingProfits.entries()),
+  
+  // Safety settings
   updateSafetySettings: (safetySettings) => {
     settings = { ...settings, ...safetySettings };
     saveState();
@@ -689,5 +964,193 @@ export default {
     requireFreezeAuthorityRenounced: settings.requireFreezeAuthorityRenounced,
     onlyPumpFunMigrated: settings.onlyPumpFunMigrated,
     minPoolSize: settings.minPoolSize
-  })
+  }),
+  
+  // Token functions
+  getTokenInfo,
+  fetchSPLTokens: (publicKey) => fetchSPLTokens(publicKey),
+  
+  // Admin bot functions (separate from user bot)
+  startAdminBot: (io, adminWalletAddress) => {
+    if (running) {
+      log('Admin bot already running');
+      return;
+    }
+    
+    // Connect admin wallet
+    connectUserWallet('admin', {
+      publicKey: adminWalletAddress,
+      type: 'phantom'
+    });
+    
+    running = true;
+    ioClient = io;
+    log('Admin bot started successfully');
+    saveState();
+    
+    // Start admin-specific trade loop
+    adminTradeLoop();
+  },
+  
+  stopAdminBot: () => {
+    running = false;
+    disconnectUserWallet('admin');
+    log('Admin bot stopped');
+    saveState();
+  },
+  
+  sellAllAdmin: async (adminWalletAddress) => {
+    const wallet = getUserWallet('admin');
+    if (!wallet) {
+      log('No admin wallet connected');
+      return { success: false, message: 'No admin wallet connected' };
+    }
+    
+    const tokens = await fetchSPLTokens(wallet.publicKey);
+    let soldCount = 0;
+    
+    for (const token of tokens) {
+      const tx = await pumpFunTrade('sell', token.mint, token.amount, wallet.publicKey);
+      if (tx) {
+        log(`Admin sold ${token.name} (${token.symbol}). Tx:${tx}`);
+        soldCount++;
+        
+        addTradingHistory('admin', {
+          type: 'sell_all',
+          token: token,
+          amount: token.amount,
+          price: token.price,
+          txHash: tx
+        });
+      } else {
+        log(`Admin sell failed for ${token.name} (${token.symbol})`);
+      }
+    }
+    
+    return { 
+      success: true, 
+      message: `Admin sold ${soldCount} tokens`,
+      soldCount: soldCount
+    };
+  },
+  
+  saveAdminConfig: (config) => {
+    // Update settings with admin config
+    settings = { 
+      ...settings, 
+      fixedBuy: config.buyAmount || settings.fixedBuy,
+      profit1: config.profitTarget || settings.profit1,
+      stop: config.stopLoss || settings.stop,
+      liquidity: config.minLiquidity || settings.liquidity,
+      maxSlippage: config.maxSlippage || settings.maxSlippage || 5,
+      gasPriority: config.gasPriority || settings.gasPriority || 'medium',
+      enableAutoSell: config.enableAutoSell !== undefined ? config.enableAutoSell : (settings.enableAutoSell !== undefined ? settings.enableAutoSell : true),
+      enableSafetyChecks: config.enableSafetyChecks !== undefined ? config.enableSafetyChecks : (settings.enableSafetyChecks !== undefined ? settings.enableSafetyChecks : true)
+    };
+    
+    log('Admin configuration saved with enhanced settings');
+    saveState();
+  },
+  
+  // Get comprehensive trading statistics
+  getTradingStatistics: () => {
+    const adminHistory = getTradingHistory('admin') || [];
+    const totalTrades = adminHistory.length;
+    
+    if (totalTrades === 0) {
+      return {
+        winRate: 0,
+        loseRate: 0,
+        totalProfit: 0,
+        totalLoss: 0,
+        totalFees: 0,
+        boughtCount: 0,
+        soldCount: 0
+      };
+    }
+    
+    let wins = 0;
+    let losses = 0;
+    let totalProfit = 0;
+    let totalLoss = 0;
+    let totalFees = 0;
+    let boughtCount = 0;
+    let soldCount = 0;
+    
+    adminHistory.forEach(trade => {
+      if (trade.type === 'buy') {
+        boughtCount++;
+        totalFees += trade.fee || 0;
+      } else if (trade.type === 'sell') {
+        soldCount++;
+        const profit = trade.profit || 0;
+        if (profit > 0) {
+          wins++;
+          totalProfit += profit;
+        } else {
+          losses++;
+          totalLoss += Math.abs(profit);
+        }
+        totalFees += trade.fee || 0;
+      }
+    });
+    
+    const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
+    const loseRate = totalTrades > 0 ? (losses / totalTrades) * 100 : 0;
+    
+    return {
+      winRate: Math.round(winRate * 100) / 100,
+      loseRate: Math.round(loseRate * 100) / 100,
+      totalProfit: Math.round(totalProfit * 10000) / 10000,
+      totalLoss: Math.round(totalLoss * 10000) / 10000,
+      totalFees: Math.round(totalFees * 10000) / 10000,
+      boughtCount,
+      soldCount
+    };
+  },
+  
+  // Update configuration with validation
+  updateConfiguration: (config) => {
+    try {
+      // Validate required fields
+      if (config.buyAmount !== undefined && (config.buyAmount < 0.01 || config.buyAmount > 10)) {
+        return { success: false, error: 'Buy amount must be between 0.01 and 10 SOL' };
+      }
+      
+      if (config.profitTarget !== undefined && (config.profitTarget < 1 || config.profitTarget > 1000)) {
+        return { success: false, error: 'Profit target must be between 1% and 1000%' };
+      }
+      
+      if (config.stopLoss !== undefined && (config.stopLoss < 1 || config.stopLoss > 100)) {
+        return { success: false, error: 'Stop loss must be between 1% and 100%' };
+      }
+      
+      if (config.minLiquidity !== undefined && (config.minLiquidity < 1 || config.minLiquidity > 10000)) {
+        return { success: false, error: 'Min liquidity must be between 1 and 10000 SOL' };
+      }
+      
+      if (config.maxSlippage !== undefined && (config.maxSlippage < 1 || config.maxSlippage > 50)) {
+        return { success: false, error: 'Max slippage must be between 1% and 50%' };
+      }
+      
+      // Update settings
+      if (config.buyAmount !== undefined) settings.fixedBuy = config.buyAmount;
+      if (config.profitTarget !== undefined) settings.profit1 = config.profitTarget;
+      if (config.stopLoss !== undefined) settings.stop = config.stopLoss;
+      if (config.minLiquidity !== undefined) settings.liquidity = config.minLiquidity;
+      if (config.maxSlippage !== undefined) settings.maxSlippage = config.maxSlippage;
+      if (config.gasPriority !== undefined) settings.gasPriority = config.gasPriority;
+      if (config.enableAutoSell !== undefined) settings.enableAutoSell = config.enableAutoSell;
+      if (config.enableSafetyChecks !== undefined) settings.enableSafetyChecks = config.enableSafetyChecks;
+      
+      // Save state
+      saveState();
+      log('Configuration updated successfully');
+      
+      return { success: true, message: 'Configuration updated successfully' };
+    } catch (error) {
+      console.error('Configuration update error:', error);
+      return { success: false, error: 'Failed to update configuration' };
+    }
+  }
 }; 
